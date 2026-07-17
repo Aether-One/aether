@@ -2,6 +2,8 @@
 
 > Transform any codebase into an AI-native workspace.
 
+🚀 Visit our documentation site [click here](https://aether-one.github.io/aether-docs/)
+
 ---
 
 AI coding assistants are changing software development, but they all share the same limitation: **they only know what you tell them.**
