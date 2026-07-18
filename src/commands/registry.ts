@@ -31,7 +31,7 @@ class CommandRegistry {
     if (!trimmed.startsWith("/")) return false;
 
     const spaceIndex = trimmed.indexOf(" ");
-    const name = spaceIndex === -1 ? trimmed.slice(1) : trimmed.slice(1, spaceIndex);
+    const name = (spaceIndex === -1 ? trimmed.slice(1) : trimmed.slice(1, spaceIndex)).toLowerCase();
     const args = spaceIndex === -1 ? "" : trimmed.slice(spaceIndex + 1).trim();
 
     const command = this.commands.get(name);

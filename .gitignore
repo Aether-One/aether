@@ -29,3 +29,6 @@ coverage/
 # Temp
 .tmp/
 .cache/
+
+# Aether local config (contains API keys)
+.aether/config.json

@@ -1,0 +1,17 @@
+{
+  "generatedAt": "2026-07-18T19:23:46.493Z",
+  "provider": "openrouter",
+  "model": "tencent/hy3:free",
+  "docs": [
+    "docs/architecture/system-overview.md",
+    "docs/architecture/folder-structure.md",
+    "docs/architecture/tech-stack.md",
+    "docs/architecture/coding-standards.md",
+    "docs/modules/overview.md",
+    "docs/api/endpoints.md",
+    "docs/diagrams/system.md",
+    "docs/AI_CONTEXT.md",
+    "docs/glossary.md",
+    "docs/deployment/build-sea.md"
+  ]
+}
