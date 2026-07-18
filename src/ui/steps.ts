@@ -51,6 +51,42 @@ export class StepRunner {
     }
   }
 
+  /**
+   * Runs `fn` for every step with at most `limit` in flight at once. Steps light
+   * up concurrently (each with its own spinner) and settle as they finish — much
+   * faster than one-at-a-time when each step is a slow model call. The first
+   * failure aborts and rethrows.
+   */
+  async runPooled(limit: number, fn: (index: number) => Promise<void>): Promise<void> {
+    this.startSpinner();
+    let next = 0;
+
+    const worker = async () => {
+      while (true) {
+        const i = next++;
+        if (i >= this.steps.length) break;
+        this.steps[i].status = "running";
+        this.render();
+        try {
+          await fn(i);
+          this.steps[i].status = "done";
+          this.render();
+        } catch (err) {
+          this.steps[i].status = "error";
+          this.render();
+          throw err;
+        }
+      }
+    };
+
+    try {
+      await Promise.all(Array.from({ length: Math.min(limit, this.steps.length) }, worker));
+    } finally {
+      this.stopSpinner();
+      this.render();
+    }
+  }
+
   setWriting(index: number): void {
     this.steps[index].status = "writing";
     this.steps[index].detail = undefined;

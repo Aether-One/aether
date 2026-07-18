@@ -2,7 +2,7 @@ import chalk from "chalk";
 import { registry } from "./registry.js";
 import { loadConfig } from "../config/index.js";
 import { createProvider } from "../providers/factory.js";
-import { chatWithRetry, createRetryLogger, formatRetryLine } from "../providers/retry.js";
+import { chatWithRetry, formatRetryLine } from "../providers/retry.js";
 import { scanContext } from "../genesis/context.js";
 import { buildPlannerDigest } from "../genesis/digest.js";
 import { planDocs } from "../genesis/planner.js";
@@ -16,6 +16,12 @@ import { join, dirname } from "node:path";
 const ACCENT = chalk.hex("#895bf4");
 const DIM = chalk.dim;
 const SUCCESS = chalk.green;
+
+/** How many docs to generate concurrently. Override with AETHER_GEN_CONCURRENCY. */
+function genConcurrency(): number {
+  const parsed = Number.parseInt(process.env.AETHER_GEN_CONCURRENCY ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 4;
+}
 
 export function registerBuiltinCommands(): void {
   registry.register({
@@ -139,32 +145,32 @@ export function registerBuiltinCommands(): void {
         const startTime = Date.now();
         const aetherDir = join(targetDir, ".aether");
 
-        for (let i = 0; i < docsToGenerate.length; i++) {
-          const doc = docsToGenerate[i];
-          try {
-            await runner.runStep(i, async () => {
-              // Every doc is generated from the same complete context.
-              const prompt = doc.buildPrompt(sharedContext);
-              const response = await chatWithRetry(
-                provider,
-                {
-                  model: config.model,
-                  messages: [{ role: "user", content: prompt }],
-                  temperature: 0.3,
-                },
-                { onRetry: createRetryLogger() },
-              );
+        // Docs are independent — generate several at once. Each is still a slow
+        // model call, but the wall-clock drops by the concurrency factor.
+        // Tune with AETHER_GEN_CONCURRENCY.
+        try {
+          await runner.runPooled(genConcurrency(), async (i) => {
+            const doc = docsToGenerate[i];
+            // Every doc is generated from the same complete context.
+            const prompt = doc.buildPrompt(sharedContext);
+            const response = await chatWithRetry(
+              provider,
+              {
+                model: config.model,
+                messages: [{ role: "user", content: prompt }],
+                temperature: 0.3,
+              },
+            );
 
-              // Write file
-              runner.setWriting(i);
-              const outputPath = join(aetherDir, doc.outputPath);
-              await mkdir(dirname(outputPath), { recursive: true });
-              await writeFile(outputPath, response.content, "utf-8");
-            });
-          } catch (err) {
-            runner.error(`Failed on ${doc.label}: ${formatError(err)}`);
-            return;
-          }
+            // Write file
+            runner.setWriting(i);
+            const outputPath = join(aetherDir, doc.outputPath);
+            await mkdir(dirname(outputPath), { recursive: true });
+            await writeFile(outputPath, response.content, "utf-8");
+          });
+        } catch (err) {
+          runner.error(`Failed generating docs: ${formatError(err)}`);
+          return;
         }
 
         // Write the docs index (docs/README.md) — deterministic, no LLM call.
