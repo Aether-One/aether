@@ -1,0 +1,5 @@
+{
+  "main": "dist/sea/aether.bundle.cjs",
+  "output": "dist/sea/sea-prep.blob",
+  "disableExperimentalSEAWarning": true
+}

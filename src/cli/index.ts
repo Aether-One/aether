@@ -5,7 +5,17 @@ import { startChat } from "../ui/prompt.js";
 import { registerHelpCommand } from "../commands/help.js";
 import { registerBuiltinCommands } from "../commands/builtins.js";
 
+declare const __AETHER_VERSION__: string;
+const VERSION = typeof __AETHER_VERSION__ !== "undefined"
+  ? __AETHER_VERSION__
+  : "0.0.0-dev";
+
 async function main(): Promise<void> {
+  if (process.argv.includes("--version") || process.argv.includes("-v")) {
+    process.stdout.write(`aether v${VERSION}\n`);
+    process.exit(0);
+  }
+
   registerHelpCommand();
   registerBuiltinCommands();
 

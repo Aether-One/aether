@@ -8,11 +8,18 @@
   },
   "scripts": {
     "build": "tsc",
+    "build:sea": "node scripts/build-sea.mjs",
     "dev": "tsx src/cli/index.ts",
     "start": "node dist/cli/index.js",
     "typecheck": "tsc --noEmit"
   },
-  "keywords": ["ai", "cli", "codebase", "knowledge", "developer-tools"],
+  "keywords": [
+    "ai",
+    "cli",
+    "codebase",
+    "knowledge",
+    "developer-tools"
+  ],
   "author": "Aether One",
   "license": "MIT",
   "repository": {
@@ -26,8 +33,10 @@
     "chalk": "^5.4.1"
   },
   "devDependencies": {
-    "typescript": "^5.8.3",
+    "@types/node": "^22.15.21",
+    "esbuild": "^0.28.1",
+    "postject": "^1.0.0-alpha.6",
     "tsx": "^4.19.4",
-    "@types/node": "^22.15.21"
+    "typescript": "^5.8.3"
   }
 }
