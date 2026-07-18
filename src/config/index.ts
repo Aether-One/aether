@@ -7,6 +7,12 @@ export interface AetherConfig {
   model: string;
   baseUrl: string;
   apiKey?: string;
+  /**
+   * Idle timeout in ms — abort a request only after this long with no data.
+   * Optional; the provider picks a sensible default. Raise it for very slow
+   * free-tier models with long queue times.
+   */
+  timeout?: number;
 }
 
 const DEFAULT_CONFIGS: Record<string, Partial<AetherConfig>> = {

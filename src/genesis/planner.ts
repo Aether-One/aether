@@ -22,6 +22,14 @@ const CORE_IDS = [
   "ai-context",
 ];
 const MAX_CUSTOM_DOCS = 5;
+// How many times we ask the model for a plan before giving up and using the
+// core set. Chatty/reasoning models often wrap the array in prose on the first
+// try; a stronger nudge on later attempts usually gets a clean array.
+const MAX_PLAN_ATTEMPTS = 3;
+
+const STRICT_FORMAT_REMINDER =
+  "CRITICAL: Output ONLY the raw JSON array. No prose, no explanation, no <think> blocks, " +
+  "no markdown code fences. Your entire response must start with [ and end with ].";
 
 export interface PlanDocsOptions {
   /** Called on each retry attempt so the caller can render it (e.g. above a spinner). */
@@ -39,24 +47,46 @@ export async function planDocs(
   model: string,
   options?: PlanDocsOptions,
 ): Promise<DocDefinition[]> {
-  const prompt = `${BASE_PROMPT}\n\n${contextPrompt}\n\n${PLANNER_PROMPT}\n\n${PROMPT_SUFFIX}`;
+  const onRetry = options?.onRetry ?? createRetryLogger();
+  const basePrompt = `${BASE_PROMPT}\n\n${contextPrompt}\n\n${PLANNER_PROMPT}\n\n${PROMPT_SUFFIX}`;
 
-  const response = await chatWithRetry(
-    provider,
-    {
-      model,
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.1,
-    },
-    { onRetry: options?.onRetry ?? createRetryLogger() },
-  );
+  let plan: ParsedPlan = { catalogIds: [], customDocs: [] };
+  let gotResponse = false;
+  let lastError: unknown;
 
-  const plan = parsePlan(response.content);
+  for (let attempt = 1; attempt <= MAX_PLAN_ATTEMPTS; attempt++) {
+    // Reinforce the output format on retries — and drop temperature to 0 so the
+    // model is less likely to editorialize around the array a second time.
+    const prompt = attempt === 1 ? basePrompt : `${basePrompt}\n\n${STRICT_FORMAT_REMINDER}`;
+
+    try {
+      const response = await chatWithRetry(
+        provider,
+        {
+          model,
+          messages: [{ role: "user", content: prompt }],
+          temperature: attempt === 1 ? 0.1 : 0,
+        },
+        { onRetry },
+      );
+      gotResponse = true;
+      plan = parsePlan(response.content);
+      if (plan.catalogIds.length > 0 || plan.customDocs.length > 0) break;
+    } catch (err) {
+      lastError = err;
+    }
+  }
 
   if (plan.catalogIds.length === 0 && plan.customDocs.length === 0) {
+    // Never even reached the model (network/timeout on every attempt) — surface
+    // the real error instead of silently pretending we planned something.
+    if (!gotResponse && lastError) throw lastError;
+
+    // We got responses but none were parseable after every attempt — fall back
+    // to the core set as a genuine last resort.
     const docs = DOC_DEFINITIONS.filter((d) => CORE_IDS.includes(d.id));
     options?.onResolved?.(docs);
-    showPlannerThought(CORE_IDS, [], "could not parse LLM response, using minimum set");
+    showPlannerThought(CORE_IDS, [], "no parseable plan after retries — using core set");
     return docs;
   }
 
@@ -126,28 +156,93 @@ function parsePlan(content: string): ParsedPlan {
 }
 
 function extractJsonArray(content: string): unknown[] | null {
-  const trimmed = content.trim();
+  // Strip reasoning blocks some models emit before the answer, and any markdown
+  // code-fence markers, so the real JSON is left standing on its own.
+  const text = content
+    .replace(/<think>[\s\S]*?<\/think>/gi, " ")
+    .replace(/```(?:json)?/gi, " ")
+    .trim();
 
-  // Direct JSON array
-  try {
-    const parsed = JSON.parse(trimmed);
-    if (Array.isArray(parsed)) return parsed;
-  } catch {
-    // Not direct JSON
+  // 1. The whole thing is a JSON array.
+  const direct = parseAsArray(text);
+  if (direct) return direct;
+
+  // 2. The whole thing is an object wrapping an array, e.g. { "docs": [...] }.
+  const wrapped = parseObjectForArray(text);
+  if (wrapped) return wrapped;
+
+  // 3. Scan every balanced [...] span and take the first that parses. Balanced
+  //    scanning avoids the greedy-match trap where stray brackets in prose (or a
+  //    reasoning trace) swallow the real array and break JSON.parse.
+  for (const span of balancedSpans(text, "[", "]")) {
+    const parsed = parseAsArray(span);
+    if (parsed) return parsed;
   }
 
-  // Find a JSON array anywhere in the text (e.g. wrapped in a code fence)
-  const match = trimmed.match(/\[[\s\S]*\]/);
-  if (match) {
-    try {
-      const parsed = JSON.parse(match[0]);
-      if (Array.isArray(parsed)) return parsed;
-    } catch {
-      // Malformed
-    }
+  // 4. Last resort: a balanced object span that contains the array.
+  for (const span of balancedSpans(text, "{", "}")) {
+    const parsed = parseObjectForArray(span);
+    if (parsed) return parsed;
   }
 
   return null;
+}
+
+function parseAsArray(candidate: string): unknown[] | null {
+  try {
+    const parsed = JSON.parse(candidate);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseObjectForArray(candidate: string): unknown[] | null {
+  try {
+    const parsed = JSON.parse(candidate);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const arr = Object.values(parsed).find((v) => Array.isArray(v));
+      if (Array.isArray(arr)) return arr;
+    }
+  } catch {
+    // Not a JSON object
+  }
+  return null;
+}
+
+/**
+ * Yields each balanced open..close substring, respecting quoted strings so
+ * brackets inside JSON string values don't throw off the depth count.
+ */
+function* balancedSpans(text: string, open: string, close: string): Generator<string> {
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] !== open) continue;
+
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let j = i; j < text.length; j++) {
+      const ch = text[j];
+
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (ch === "\\") escaped = true;
+        else if (ch === '"') inString = false;
+        continue;
+      }
+
+      if (ch === '"') inString = true;
+      else if (ch === open) depth++;
+      else if (ch === close) {
+        depth--;
+        if (depth === 0) {
+          yield text.slice(i, j + 1);
+          break;
+        }
+      }
+    }
+  }
 }
 
 /**

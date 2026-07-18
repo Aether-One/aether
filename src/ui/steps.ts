@@ -10,6 +10,8 @@ const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", 
 export interface Step {
   label: string;
   status: "pending" | "running" | "writing" | "done" | "error";
+  /** Transient sub-status shown while running (e.g. "distilling 2/4"). */
+  detail?: string;
 }
 
 export class StepRunner {
@@ -51,6 +53,13 @@ export class StepRunner {
 
   setWriting(index: number): void {
     this.steps[index].status = "writing";
+    this.steps[index].detail = undefined;
+    this.render();
+  }
+
+  /** Update the transient sub-status of the running step (cleared when it finishes). */
+  setDetail(index: number, detail: string | undefined): void {
+    this.steps[index].detail = detail;
     this.render();
   }
 
@@ -99,7 +108,8 @@ export class StepRunner {
           ? FAIL(step.label)
           : step.label;
 
-      process.stdout.write(`     ${icon} ${label}\n`);
+      const detail = step.status === "running" && step.detail ? ` ${DIM(`— ${step.detail}`)}` : "";
+      process.stdout.write(`     ${icon} ${label}${detail}\n`);
       lines++;
     }
 

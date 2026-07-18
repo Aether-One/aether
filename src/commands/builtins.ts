@@ -3,8 +3,10 @@ import { registry } from "./registry.js";
 import { loadConfig } from "../config/index.js";
 import { createProvider } from "../providers/factory.js";
 import { chatWithRetry, createRetryLogger, formatRetryLine } from "../providers/retry.js";
-import { scanContext, buildPrompt } from "../genesis/context.js";
+import { scanContext } from "../genesis/context.js";
+import { buildPlannerDigest } from "../genesis/digest.js";
 import { planDocs } from "../genesis/planner.js";
+import { assembleDocContext } from "../genesis/scope.js";
 import { buildDocsIndex } from "../genesis/docs.js";
 import { StepRunner, LineSpinner } from "../ui/steps.js";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -81,7 +83,6 @@ export function registerBuiltinCommands(): void {
         // Scan
         process.stdout.write(`     ${DIM("Scanning project...")}`)
         const context = await scanContext(targetDir);
-        const contextPrompt = buildPrompt(context);
         process.stdout.write(` ${SUCCESS("✓")}`);
         if (context.omittedFiles.length > 0) {
           process.stdout.write(` ${DIM(`(${context.omittedFiles.length} file(s) omitted — too large for context)`)}`);
@@ -95,7 +96,7 @@ export function registerBuiltinCommands(): void {
         planSpinner.start();
         let docsToGenerate;
         try {
-          docsToGenerate = await planDocs(contextPrompt, provider, config.model, {
+          docsToGenerate = await planDocs(buildPlannerDigest(context), provider, config.model, {
             onRetry: (attempt, maxRetries, error) =>
               planSpinner.log(formatRetryLine(attempt, maxRetries, error)),
             onResolved: (docs) => planSpinner.succeed(`(${docs.length} docs)`),
@@ -119,8 +120,17 @@ export function registerBuiltinCommands(): void {
           const doc = docsToGenerate[i];
           try {
             await runner.runStep(i, async () => {
+              // Divide-and-conquer: give this doc only the code it needs, using
+              // real source when it fits and distilling it chunk-by-chunk when the
+              // relevant slice is too big for the model's context.
+              const docContext = await assembleDocContext(doc, context, provider, config.model, {
+                onStart: (batches) =>
+                  runner.setDetail(i, `large slice — distilling ${batches} chunk${batches > 1 ? "s" : ""}`),
+                onBatch: (index, total) => runner.setDetail(i, `distilling ${index}/${total}`),
+              });
+
               // Call LLM with retry
-              const prompt = doc.buildPrompt(contextPrompt);
+              const prompt = doc.buildPrompt(docContext);
               const response = await chatWithRetry(
                 provider,
                 {
@@ -132,6 +142,7 @@ export function registerBuiltinCommands(): void {
               );
 
               // Write file
+              runner.setDetail(i, undefined);
               runner.setWriting(i);
               const outputPath = join(aetherDir, doc.outputPath);
               await mkdir(dirname(outputPath), { recursive: true });
