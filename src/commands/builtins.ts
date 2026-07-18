@@ -5,6 +5,7 @@ import { createProvider } from "../providers/factory.js";
 import { chatWithRetry, createRetryLogger } from "../providers/retry.js";
 import { scanContext, buildPrompt } from "../genesis/context.js";
 import { planDocs } from "../genesis/planner.js";
+import { buildDocsIndex } from "../genesis/docs.js";
 import { StepRunner } from "../ui/steps.js";
 import { mkdir, writeFile } from "node:fs/promises";
 import { existsSync, statSync } from "node:fs";
@@ -130,6 +131,11 @@ export function registerBuiltinCommands(): void {
           }
         }
 
+        // Write the docs index (docs/README.md) — deterministic, no LLM call.
+        const indexPath = join(aetherDir, "docs", "README.md");
+        await mkdir(dirname(indexPath), { recursive: true });
+        await writeFile(indexPath, buildDocsIndex(context.name, docsToGenerate), "utf-8");
+
         // Write context.json
         await mkdir(aetherDir, { recursive: true });
         await writeFile(
@@ -138,7 +144,7 @@ export function registerBuiltinCommands(): void {
             generatedAt: new Date().toISOString(),
             provider: config.provider,
             model: config.model,
-            docs: docsToGenerate.map((d) => d.outputPath),
+            docs: ["docs/README.md", ...docsToGenerate.map((d) => d.outputPath)],
           }, null, 2),
           "utf-8",
         );
@@ -197,6 +203,11 @@ function showGenesisHelp(): void {
   process.stdout.write(`     ${DIM("(incremental update — still under development).")}\n\n`);
   process.stdout.write(`     ${DIM("Generated docs:")}\n`);
   process.stdout.write(`       .aether/docs/\n`);
+  process.stdout.write(`       ├── README.md                ${DIM("(always — index of everything below)")}\n`);
+  process.stdout.write(`       ├── guides/\n`);
+  process.stdout.write(`       │   ├── getting-started.md   ${DIM("(always — install & run, for humans)")}\n`);
+  process.stdout.write(`       │   ├── onboarding.md        ${DIM("(always — mental model & the why)")}\n`);
+  process.stdout.write(`       │   └── contributing.md      ${DIM("(if there's a real contribution process)")}\n`);
   process.stdout.write(`       ├── architecture/\n`);
   process.stdout.write(`       │   ├── system-overview.md   ${DIM("(always)")}\n`);
   process.stdout.write(`       │   ├── folder-structure.md  ${DIM("(always)")}\n`);
@@ -209,7 +220,7 @@ function showGenesisHelp(): void {
   process.stdout.write(`       ├── AI_CONTEXT.md            ${DIM("(always)")}\n`);
   process.stdout.write(`       ├── glossary.md              ${DIM("(if applicable)")}\n`);
   process.stdout.write(`       └── ...                      ${DIM("+ custom docs the AI proposes for this project")}\n\n`);
-  process.stdout.write(`     ${DIM("Everything except the 4 marked")} (always) ${DIM("only gets generated when the AI")}\n`);
+  process.stdout.write(`     ${DIM("Everything except the")} (always) ${DIM("docs only gets generated when the AI")}\n`);
   process.stdout.write(`     ${DIM("finds real evidence for it — a frontend or devops project, for example,")}\n`);
   process.stdout.write(`     ${DIM("won't get api/endpoints.md just because it's in the catalog.\n\n")}`);
   process.stdout.write(`     ${DIM("The planner picks which of the above fit this project, and may add a")}\n`);
