@@ -148,6 +148,12 @@ export class LineSpinner {
     }, 80);
   }
 
+  /** Update the label shown next to the spinner (e.g. progress counters). */
+  setLabel(label: string): void {
+    this.label = label;
+    this.render();
+  }
+
   /** Print a standalone line above the spinner, then keep animating below it. */
   log(line: string): void {
     this.clearLine();

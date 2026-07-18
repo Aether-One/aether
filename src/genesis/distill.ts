@@ -1,11 +1,14 @@
 import type { LLMProvider } from "../providers/types.js";
 import { chatWithRetry, createRetryLogger } from "../providers/retry.js";
-import type { DocDefinition } from "./docs.js";
 
 export interface FileContent {
   path: string;
   content: string;
 }
+
+const DEFAULT_PURPOSE =
+  "writing complete developer documentation for this project (architecture, modules, " +
+  "public API / CLI commands, domain rules, and setup/usage)";
 
 export interface DistillHooks {
   /** Called once we know how many summarize calls this doc needs. */
@@ -25,11 +28,11 @@ export interface DistillHooks {
  */
 export async function distillFiles(
   files: FileContent[],
-  doc: DocDefinition,
   provider: LLMProvider,
   model: string,
   budget: number,
   hooks?: DistillHooks,
+  purpose: string = DEFAULT_PURPOSE,
 ): Promise<string> {
   // Leave headroom in each chunk for the instruction wrapper.
   const chunkBudget = Math.max(4_000, Math.floor(budget * 0.75));
@@ -49,7 +52,7 @@ export async function distillFiles(
       provider,
       {
         model,
-        messages: [{ role: "user", content: `${distillInstruction(doc)}\n\n${body}` }],
+        messages: [{ role: "user", content: `${distillInstruction(purpose)}\n\n${body}` }],
         temperature: 0,
       },
       { onRetry: createRetryLogger() },
@@ -67,11 +70,10 @@ export async function distillFiles(
  * the whole point is to feed the doc generator condensed *evidence*, never
  * invention, so the downstream "don't hallucinate" guarantee still holds.
  */
-function distillInstruction(doc: DocDefinition): string {
+function distillInstruction(purpose: string): string {
   return [
-    `You are extracting factual notes from source files. These notes will later be used to write the "${doc.title}" document.`,
+    `You are extracting factual notes from source files. These notes will later be used for ${purpose}.`,
     "",
-    `Focus on what matters for "${doc.title}" (${doc.summary}).`,
     "For each file below, list concrete, verifiable facts only:",
     "- exported functions/classes/types and what they do",
     "- routes, endpoints, CLI commands, or public entry points (with their real names)",

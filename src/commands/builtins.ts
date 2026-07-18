@@ -6,7 +6,7 @@ import { chatWithRetry, createRetryLogger, formatRetryLine } from "../providers/
 import { scanContext } from "../genesis/context.js";
 import { buildPlannerDigest } from "../genesis/digest.js";
 import { planDocs } from "../genesis/planner.js";
-import { assembleDocContext } from "../genesis/scope.js";
+import { buildSharedProjectContext } from "../genesis/scope.js";
 import { buildDocsIndex } from "../genesis/docs.js";
 import { StepRunner, LineSpinner } from "../ui/steps.js";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -106,6 +106,24 @@ export function registerBuiltinCommands(): void {
           throw err;
         }
 
+        // Build ONE complete context, shared by every doc. If the whole project
+        // fits, that's the real code; if not, it's distilled once here (not per
+        // doc) so the expensive pass runs a single time and every doc stays complete.
+        const ctxSpinner = new LineSpinner("Preparing project context...");
+        ctxSpinner.start();
+        let sharedContext: string;
+        try {
+          sharedContext = await buildSharedProjectContext(context, provider, config.model, {
+            onStart: (batches) =>
+              ctxSpinner.setLabel(`Distilling project (${batches} chunk${batches > 1 ? "s" : ""})...`),
+            onBatch: (index, total) => ctxSpinner.setLabel(`Distilling project ${index}/${total}...`),
+          });
+          ctxSpinner.succeed();
+        } catch (err) {
+          ctxSpinner.fail();
+          throw err;
+        }
+
         // Phase 2: Generate docs with step runner
         const runner = new StepRunner("generating docs");
         for (const doc of docsToGenerate) {
@@ -120,17 +138,8 @@ export function registerBuiltinCommands(): void {
           const doc = docsToGenerate[i];
           try {
             await runner.runStep(i, async () => {
-              // Divide-and-conquer: give this doc only the code it needs, using
-              // real source when it fits and distilling it chunk-by-chunk when the
-              // relevant slice is too big for the model's context.
-              const docContext = await assembleDocContext(doc, context, provider, config.model, {
-                onStart: (batches) =>
-                  runner.setDetail(i, `large slice — distilling ${batches} chunk${batches > 1 ? "s" : ""}`),
-                onBatch: (index, total) => runner.setDetail(i, `distilling ${index}/${total}`),
-              });
-
-              // Call LLM with retry
-              const prompt = doc.buildPrompt(docContext);
+              // Every doc is generated from the same complete context.
+              const prompt = doc.buildPrompt(sharedContext);
               const response = await chatWithRetry(
                 provider,
                 {
@@ -142,7 +151,6 @@ export function registerBuiltinCommands(): void {
               );
 
               // Write file
-              runner.setDetail(i, undefined);
               runner.setWriting(i);
               const outputPath = join(aetherDir, doc.outputPath);
               await mkdir(dirname(outputPath), { recursive: true });
