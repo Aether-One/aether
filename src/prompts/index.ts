@@ -1,4 +1,7 @@
-export { BASE_PROMPT, PROMPT_SUFFIX } from "./base.js";
+export { BASE_PROMPT, PROMPT_SUFFIX, HUMAN_BASE_PROMPT, HUMAN_PROMPT_SUFFIX } from "./base.js";
+export { GETTING_STARTED_PROMPT } from "./getting-started.js";
+export { ONBOARDING_PROMPT } from "./onboarding.js";
+export { CONTRIBUTING_PROMPT } from "./contributing.js";
 export { SYSTEM_OVERVIEW_PROMPT } from "./system-overview.js";
 export { FOLDER_STRUCTURE_PROMPT } from "./folder-structure.js";
 export { TECH_STACK_PROMPT } from "./tech-stack.js";

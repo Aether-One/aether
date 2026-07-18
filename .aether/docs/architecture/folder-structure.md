@@ -2,87 +2,107 @@
 
 ## Overview
 
-The project is organized as a TypeScript CLI application. Source code lives under `src/` and is split by responsibility (CLI entry, commands, config, genesis pipeline, prompts, providers, UI). Documentation and build scripts sit at the root or in `docs/` and `scripts/`.
+The project is a TypeScript CLI tool (Node.js 20+, ESM) named `aether`. Its layout separates the interactive CLI entry point, command implementations, configuration loading, AI provider abstraction, genesis (documentation generation) pipeline, prompt templates, and terminal UI into distinct `src/` subdirectories. Build and project metadata live at the repo root.
 
 ## Root Structure
 
 ```
 aether/
-├── docs/            Documentation written by the project team (architecture, commands, development)
-├── scripts/         Build scripts (e.g. build-sea.mjs)
-├── src/             All application source code
-├── CONTRIBUTING.md  Contribution guidelines and intended structure
-├── LICENSE          MIT license
-├── package-lock.json  Lockfile for dependencies
-├── package.json     Project manifest, scripts, dependencies
-├── README.md        Product overview and quick start
-├── sea-config.json  Configuration for single-executable build (referenced by scripts/build-sea.mjs)
-└── tsconfig.json    TypeScript compiler configuration
+├── scripts/
+│   └── build-sea.mjs
+├── src/
+│   ├── cli/
+│   ├── commands/
+│   ├── config/
+│   ├── genesis/
+│   ├── prompts/
+│   ├── providers/
+│   └── ui/
+├── CONTEXT.md
+├── CONTRIBUTING.md
+├── LICENSE
+├── package-lock.json
+├── package.json
+├── README.md
+├── sea-config.json
+└── tsconfig.json
 ```
 
-- `docs/` contains `architecture.md`, `commands.md`, `development.md`.
-- `scripts/` contains `build-sea.mjs`.
-- Root markdown/config files: `CONTRIBUTING.md`, `LICENSE`, `package-lock.json`, `package.json`, `README.md`, `sea-config.json`, `tsconfig.json`.
+- `scripts/` — Contains `build-sea.mjs` (referenced in `package.json` `build:sea` script: `node scripts/build-sea.mjs`).
+- `src/` — All TypeScript source code, organized by responsibility (see below).
+- `CONTEXT.md` — Author-written project context / vision document.
+- `CONTRIBUTING.md` — Author-written contribution guide.
+- `LICENSE` — Project license file (MIT per `package.json`).
+- `package-lock.json` — Lockfile for dependencies.
+- `package.json` — Project manifest (name `aether`, `type: module`, scripts, deps).
+- `README.md` — Project readme.
+- `sea-config.json` — Configuration file for SEA build (referenced by `build:sea` script and `scripts/build-sea.mjs` presence).
+- `tsconfig.json` — TypeScript compiler configuration.
 
 ## Source Structure
 
 ```
 src/
 ├── cli/
-│   └── index.ts           CLI entry point (shebang, arg parsing, registers commands, starts chat)
+│   └── index.ts              → Entry point, registers commands, starts prompt
 ├── commands/
-│   ├── builtins.ts        Registers /genesis, /sync, /exit, /clear
-│   ├── config.ts          Registers /config command
-│   ├── help.ts            Registers /help command
-│   └── registry.ts        CommandRegistry class and registry instance
+│   ├── builtins.ts           → /genesis, /sync, /exit, /clear + formatError()
+│   ├── config.ts             → /config (setup of provider)
+│   ├── help.ts               → /help (lists commands)
+│   └── registry.ts           → CommandRegistry (register/get/execute)
 ├── config/
-│   └── index.ts           AetherConfig interface, load/save/validate config, provider defaults
+│   └── index.ts              → AetherConfig type, load/save/validate config
 ├── genesis/
-│   ├── context.ts         scanContext(), buildPrompt(), ProjectContext interface
-│   ├── docs.ts            DocDefinition, DOC_DEFINITIONS, buildCustomDocDefinition
-│   └── planner.ts         planDocs(), parsePlan(), sanitizeDocPath()
+│   ├── context.ts            → scanContext() + buildPrompt()
+│   ├── docs.ts               → DOC_DEFINITIONS + buildCustomDocDefinition() + buildDocsIndex()
+│   └── planner.ts            → planDocs() (AI decides docs to generate)
 ├── prompts/
-│   ├── ai-context.ts      AI_CONTEXT_PROMPT
-│   ├── api.ts             API_PROMPT
-│   ├── base.ts            BASE_PROMPT, PROMPT_SUFFIX
-│   ├── business.ts        BUSINESS_RULES_PROMPT
-│   ├── coding-standards.ts CODING_STANDARDS_PROMPT
-│   ├── custom-doc.ts      buildCustomDocPrompt()
-│   ├── diagrams.ts        DIAGRAMS_PROMPT
-│   ├── folder-structure.ts FOLDER_STRUCTURE_PROMPT
-│   ├── glossary.ts        GLOSSARY_PROMPT
-│   ├── index.ts           Re-exports all prompt constants/functions
-│   ├── modules.ts         MODULES_PROMPT
-│   ├── planner.ts         PLANNER_PROMPT
-│   ├── system-overview.ts SYSTEM_OVERVIEW_PROMPT
-│   └── tech-stack.ts      TECH_STACK_PROMPT
+│   ├── ai-context.ts         → AI_CONTEXT_PROMPT
+│   ├── api.ts                → API_PROMPT
+│   ├── base.ts               → BASE_PROMPT + PROMPT_SUFFIX
+│   ├── business.ts           → BUSINESS_RULES_PROMPT
+│   ├── coding-standards.ts   → CODING_STANDARDS_PROMPT
+│   ├── contributing.ts       → CONTRIBUTING_PROMPT
+│   ├── custom-doc.ts         → buildCustomDocPrompt()
+│   ├── diagrams.ts           → DIAGRAMS_PROMPT
+│   ├── folder-structure.ts   → FOLDER_STRUCTURE_PROMPT
+│   ├── getting-started.ts    → GETTING_STARTED_PROMPT
+│   ├── glossary.ts           → GLOSSARY_PROMPT
+│   ├── index.ts              → re-exports all prompts
+│   ├── modules.ts            → MODULES_PROMPT
+│   ├── onboarding.ts         → ONBOARDING_PROMPT
+│   ├── planner.ts            → PLANNER_PROMPT
+│   ├── system-overview.ts    → SYSTEM_OVERVIEW_PROMPT
+│   └── tech-stack.ts         → TECH_STACK_PROMPT
 ├── providers/
-│   ├── factory.ts         createProvider()
-│   ├── index.ts           Re-exports provider types and classes
-│   ├── openai-compatible.ts OpenAICompatibleProvider class
-│   ├── retry.ts           chatWithRetry(), createRetryLogger()
-│   └── types.ts           LLMProvider, ChatMessage, ChatRequest, ChatResponse, StreamChunk
+│   ├── factory.ts            → createProvider(config)
+│   ├── index.ts              → re-exports
+│   ├── openai-compatible.ts  → OpenAICompatibleProvider
+│   ├── retry.ts              → chatWithRetry + createRetryLogger()
+│   └── types.ts              → LLMProvider interface + request/response types
 └── ui/
-    ├── animation.ts       playStartupAnimation(), printBanner()
-    ├── prompt.ts          startChat(), dropdown, chat loop
-    └── steps.ts           StepRunner class
+    ├── animation.ts          → playStartupAnimation() + printBanner()
+    ├── prompt.ts             → startChat() (readline interactive prompt)
+    └── steps.ts              → StepRunner (visual step states)
 ```
 
 ## Naming Conventions
 
-- Source files use lowercase with hyphens for multi-word names (e.g. `build-sea.mjs`, `openai-compatible.ts`, `coding-standards.ts`).
-- Command modules are named by responsibility: `builtins.ts`, `config.ts`, `help.ts`, `registry.ts`.
-- Prompt modules each export a constant or function in `kebab-case` file names matching the exported symbol (e.g. `system-overview.ts` exports `SYSTEM_OVERVIEW_PROMPT`).
-- TypeScript modules use `NodeNext` resolution with `.js` import extensions (visible in `src/cli/index.ts` importing `../ui/animation.js`).
-- The `src/genesis/` directory groups the analysis pipeline (`context.ts`, `docs.ts`, `planner.ts`).
+- Source files use lowercase with hyphens for multi-word names (e.g. `build-sea.mjs`, `openai-compatible.ts`, `folder-structure.ts`).
+- Command files are plural and lowercase (`builtins.ts`, `config.ts`, `help.ts`, `registry.ts`).
+- Prompt template files export a constant in `SCREAMING_SNAKE_CASE` (e.g. `FOLDER_STRUCTURE_PROMPT` in `src/prompts/folder-structure.ts`) or a function (`buildCustomDocPrompt` in `src/prompts/custom-doc.ts`).
+- ESM imports use explicit `.js` extension for local TypeScript files (e.g. `../ui/animation.js` in `src/cli/index.ts`).
+- Top-level directories under `src/` are lowercase and named by responsibility (`cli`, `commands`, `config`, `genesis`, `prompts`, `providers`, `ui`).
 
 ## Key Files
 
-- `src/cli/index.ts` — Entry point. Declares `__AETHER_VERSION__`, handles `--version`/`-v`, registers help/builtin/config commands, plays startup animation or prints banner based on TTY and `--no-animation`, then calls `startChat()`.
-- `package.json` — Defines `bin` as `aether` → `./dist/cli/index.js`, scripts (`build`, `build:sea`, `dev`, `start`, `typecheck`), dependency `chalk`, devDependencies (`@types/node`, `esbuild`, `postject`, `tsx`, `typescript`), engine `node >=20.0.0`.
-- `tsconfig.json` — Target `ES2022`, module `NodeNext`, `outDir ./dist`, `rootDir ./src`, strict mode.
-- `src/commands/registry.ts` — Defines `Command` interface and `CommandRegistry` class; exports `registry` instance used across command modules.
-- `src/config/index.ts` — Defines `AetherConfig` (provider, model, baseUrl, apiKey), `DEFAULT_CONFIGS` for openai/anthropic/gemini/openrouter, and load/save/validate functions writing to `.aether/config.json`.
-- `src/genesis/context.ts` — `scanContext()` walks the target directory (respecting `IGNORED_DIRS`, size/depth limits) and `buildPrompt()` assembles the project context string.
-- `src/providers/openai-compatible.ts` — `OpenAICompatibleProvider` implementing `chat`, `chatStream`, `ping` against `${baseUrl}/chat/completions` and `/models`.
-- `scripts/build-sea.mjs` — Referenced by `build:sea` script; purpose not detailed in provided source beyond filename and script mapping.
+- `src/cli/index.ts` — Entry point. Imports `playStartupAnimation`/`printBanner` from `../ui/animation.js`, `startChat` from `../ui/prompt.js`, and command registrars from `../commands/`. Calls `registerHelpCommand()`, `registerBuiltinCommands()`, `registerConfigCommand()`, then starts animation or banner and `startChat()`.
+- `package.json` — Defines `bin` as `aether` → `./dist/cli/index.js`, scripts (`build`: `tsc`, `build:sea`: `node scripts/build-sea.mjs`, `dev`: `tsx src/cli/index.ts`, `start`: `node dist/cli/index.js`, `typecheck`: `tsc --noEmit`), dependency `chalk`, and dev deps `esbuild`, `postject`, `tsx`, `typescript`, `@types/node`.
+- `tsconfig.json` — Sets `module: NodeNext`, `moduleResolution: NodeNext`, `strict: true`, `outDir: ./dist`, `rootDir: ./src`.
+- `src/commands/registry.ts` — Defines `Command` interface and `CommandRegistry` class with `register`, `get`, `getAll`, `has`, `execute` (case-insensitive name match, lowercase conversion). Exports `registry` instance.
+- `src/config/index.ts` — Defines `AetherConfig` interface, `DEFAULT_CONFIGS`, `detectProviderFromBaseUrl()`, `loadConfig()`, `saveConfig()`, `validateConfig()`.
+- `src/providers/openai-compatible.ts` — `OpenAICompatibleProvider` class implementing `LLMProvider` with `chat`, `chatStream`, `ping` using `fetch` to `${baseUrl}/chat/completions` and `${baseUrl}/models`.
+- `src/genesis/context.ts` — `scanContext()` walks project (respecting `IGNORED_DIRS`, `MAX_FILE_SIZE`, `MAX_TOTAL_CHARS`) and `buildPrompt()` assembles the project context string.
+- `src/genesis/planner.ts` — `planDocs()` calls LLM with `PLANNER_PROMPT` and returns `DocDefinition[]` including core IDs and custom docs.
+- `src/genesis/docs.ts` — `DOC_DEFINITIONS` array, `buildCustomDocDefinition()`, `buildDocsIndex()` for `docs/README.md`.
+- `sea-config.json` — Present at root; consumed by `scripts/build-sea.mjs` (per `build:sea` script), exact contents not provided in context.

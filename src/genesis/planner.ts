@@ -8,8 +8,19 @@ const DIM = chalk.dim;
 const ACCENT = chalk.hex("#895bf4");
 const WARN = chalk.yellow;
 
-/** Always generated regardless of what the planner returns — keeps every project anchored. */
-const CORE_IDS = ["system-overview", "folder-structure", "tech-stack", "ai-context"];
+/**
+ * Always generated regardless of what the planner returns — keeps every project anchored.
+ * Two anchors for two audiences: the architecture/AI set (system-overview, folder-structure,
+ * tech-stack, ai-context) and the human guides (getting-started, onboarding).
+ */
+const CORE_IDS = [
+  "getting-started",
+  "onboarding",
+  "system-overview",
+  "folder-structure",
+  "tech-stack",
+  "ai-context",
+];
 const MAX_CUSTOM_DOCS = 5;
 
 export async function planDocs(

@@ -6,9 +6,11 @@ Return ONLY a JSON array. Each element is EITHER:
 - an object — a NEW custom document not covered by the known IDs: { "path": "category/file-name.md", "title": "Human Title", "focus": "1-2 sentences on what this doc should cover and why it matters for THIS project" }
 
 Always generated, don't worry about these (listed for context only — you don't need to include them):
-- "system-overview", "folder-structure", "tech-stack", "ai-context"
+- "system-overview", "folder-structure", "tech-stack", "ai-context" (architecture + AI anchors)
+- "getting-started", "onboarding" (human guides — always generated for every project)
 
 Conditional known IDs — prefer these hand-tuned templates over a custom doc when one actually fits, but each requires its OWN specific evidence. This project can be a frontend, a backend, a CLI, a library, or a devops/infra project — most of these do NOT apply to most projects, so don't default to including them:
+- "contributing" — a human contribution guide. Include ONLY if there's real process/convention evidence (an existing CONTRIBUTING file, CI workflows, a PR template, lint/test scripts). If the project shows no visible process, OMIT — getting-started and onboarding already cover setup and mental model
 - "coding-standards" — only if there's enough code to actually infer consistent patterns
 - "modules" — only if the project has multiple non-trivial modules/directories worth documenting individually
 - "api" — only if you see ACTUAL REST/GraphQL routes, or ACTUAL CLI command definitions, in the code. A frontend, a devops/infra project, or a library with no public entry point should NOT get this
