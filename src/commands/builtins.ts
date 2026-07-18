@@ -2,11 +2,11 @@ import chalk from "chalk";
 import { registry } from "./registry.js";
 import { loadConfig } from "../config/index.js";
 import { createProvider } from "../providers/factory.js";
-import { chatWithRetry, createRetryLogger } from "../providers/retry.js";
+import { chatWithRetry, createRetryLogger, formatRetryLine } from "../providers/retry.js";
 import { scanContext, buildPrompt } from "../genesis/context.js";
 import { planDocs } from "../genesis/planner.js";
 import { buildDocsIndex } from "../genesis/docs.js";
-import { StepRunner } from "../ui/steps.js";
+import { StepRunner, LineSpinner } from "../ui/steps.js";
 import { mkdir, writeFile } from "node:fs/promises";
 import { existsSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -88,10 +88,22 @@ export function registerBuiltinCommands(): void {
         }
         process.stdout.write("\n");
 
-        // Plan — ask AI which docs to generate
-        process.stdout.write(`     ${DIM("Planning documentation...")}`)
-        const docsToGenerate = await planDocs(contextPrompt, provider, config.model);
-        process.stdout.write(` ${SUCCESS("✓")} ${DIM(`(${docsToGenerate.length} docs)`)}\n\n`);
+        // Plan — ask AI which docs to generate.
+        // This is the slowest single call (large context → long model latency),
+        // so it gets a live spinner + elapsed timer instead of a frozen line.
+        const planSpinner = new LineSpinner("Planning documentation...");
+        planSpinner.start();
+        let docsToGenerate;
+        try {
+          docsToGenerate = await planDocs(contextPrompt, provider, config.model, {
+            onRetry: (attempt, maxRetries, error) =>
+              planSpinner.log(formatRetryLine(attempt, maxRetries, error)),
+            onResolved: (docs) => planSpinner.succeed(`(${docs.length} docs)`),
+          });
+        } catch (err) {
+          planSpinner.fail();
+          throw err;
+        }
 
         // Phase 2: Generate docs with step runner
         const runner = new StepRunner("generating docs");

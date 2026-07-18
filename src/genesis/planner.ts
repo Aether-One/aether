@@ -1,6 +1,6 @@
 import chalk from "chalk";
 import type { LLMProvider } from "../providers/types.js";
-import { chatWithRetry, createRetryLogger } from "../providers/retry.js";
+import { chatWithRetry, createRetryLogger, type RetryOptions } from "../providers/retry.js";
 import { DOC_DEFINITIONS, buildCustomDocDefinition, type DocDefinition, type CustomDocSpec } from "./docs.js";
 import { BASE_PROMPT, PROMPT_SUFFIX, PLANNER_PROMPT } from "../prompts/index.js";
 
@@ -23,10 +23,21 @@ const CORE_IDS = [
 ];
 const MAX_CUSTOM_DOCS = 5;
 
+export interface PlanDocsOptions {
+  /** Called on each retry attempt so the caller can render it (e.g. above a spinner). */
+  onRetry?: RetryOptions["onRetry"];
+  /**
+   * Called once the plan is resolved, right before the planner thought is printed.
+   * Lets the caller stop any live spinner so its output doesn't collide with ours.
+   */
+  onResolved?: (docs: DocDefinition[]) => void;
+}
+
 export async function planDocs(
   contextPrompt: string,
   provider: LLMProvider,
   model: string,
+  options?: PlanDocsOptions,
 ): Promise<DocDefinition[]> {
   const prompt = `${BASE_PROMPT}\n\n${contextPrompt}\n\n${PLANNER_PROMPT}\n\n${PROMPT_SUFFIX}`;
 
@@ -37,14 +48,16 @@ export async function planDocs(
       messages: [{ role: "user", content: prompt }],
       temperature: 0.1,
     },
-    { onRetry: createRetryLogger() },
+    { onRetry: options?.onRetry ?? createRetryLogger() },
   );
 
   const plan = parsePlan(response.content);
 
   if (plan.catalogIds.length === 0 && plan.customDocs.length === 0) {
+    const docs = DOC_DEFINITIONS.filter((d) => CORE_IDS.includes(d.id));
+    options?.onResolved?.(docs);
     showPlannerThought(CORE_IDS, [], "could not parse LLM response, using minimum set");
-    return DOC_DEFINITIONS.filter((d) => CORE_IDS.includes(d.id));
+    return docs;
   }
 
   const catalogIds = [...new Set([...CORE_IDS, ...plan.catalogIds])];
@@ -54,8 +67,10 @@ export async function planDocs(
     .slice(0, MAX_CUSTOM_DOCS)
     .map(buildCustomDocDefinition);
 
+  const docs = [...catalogDocs, ...customDocs];
+  options?.onResolved?.(docs);
   showPlannerThought(catalogIds, customDocs.map((d) => d.label));
-  return [...catalogDocs, ...customDocs];
+  return docs;
 }
 
 function showPlannerThought(catalogIds: string[], customLabels: string[], note?: string): void {

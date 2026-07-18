@@ -51,15 +51,21 @@ export async function chatWithRetry(
 }
 
 /**
+ * Formats a single retry notice line (no trailing newline) so it can be routed
+ * either straight to stdout or through a spinner's `log()`.
+ */
+export function formatRetryLine(attempt: number, maxRetries: number, error: string): string {
+  const sanitized = error.replace(/[\n\r]+/g, " ").replace(/\s+/g, " ").trim();
+  const shortError = sanitized.length > 80 ? sanitized.slice(0, 80) + "..." : sanitized;
+  return `       ${WARN("↻")} Retry ${attempt}/${maxRetries} ${DIM(`— ${shortError}`)}`;
+}
+
+/**
  * Default retry logger that writes to stdout.
  */
 export function createRetryLogger(): RetryOptions["onRetry"] {
   return (attempt, maxRetries, error) => {
-    const sanitized = error.replace(/[\n\r]+/g, " ").replace(/\s+/g, " ").trim();
-    const shortError = sanitized.length > 80 ? sanitized.slice(0, 80) + "..." : sanitized;
-    process.stdout.write(
-      `       ${WARN("↻")} Retry ${attempt}/${maxRetries} ${DIM(`— ${shortError}`)}\n`,
-    );
+    process.stdout.write(`${formatRetryLine(attempt, maxRetries, error)}\n`);
   };
 }
 

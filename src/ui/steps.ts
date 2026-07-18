@@ -121,3 +121,58 @@ export class StepRunner {
     }
   }
 }
+
+export class LineSpinner {
+  private interval: ReturnType<typeof setInterval> | null = null;
+  private frame = 0;
+  private startTime = 0;
+
+  constructor(private label: string) {}
+
+  start(): void {
+    this.startTime = Date.now();
+    this.render();
+    this.interval = setInterval(() => {
+      this.frame = (this.frame + 1) % SPINNER_FRAMES.length;
+      this.render();
+    }, 80);
+  }
+
+  /** Print a standalone line above the spinner, then keep animating below it. */
+  log(line: string): void {
+    this.clearLine();
+    process.stdout.write(`${line}\n`);
+    this.render();
+  }
+
+  succeed(suffix?: string): void {
+    this.stop();
+    this.clearLine();
+    process.stdout.write(`     ${DIM(this.label)} ${SUCCESS("✓")}${suffix ? ` ${DIM(suffix)}` : ""}\n`);
+  }
+
+  fail(suffix?: string): void {
+    this.stop();
+    this.clearLine();
+    process.stdout.write(`     ${FAIL(this.label)} ${FAIL("✗")}${suffix ? ` ${DIM(suffix)}` : ""}\n`);
+  }
+
+  private render(): void {
+    this.clearLine();
+    const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
+    process.stdout.write(
+      `     ${ACCENT(SPINNER_FRAMES[this.frame])} ${DIM(this.label)} ${DIM(`(${elapsed}s)`)}`,
+    );
+  }
+
+  private clearLine(): void {
+    process.stdout.write("\r\x1B[2K");
+  }
+
+  private stop(): void {
+    if (this.interval) {
+      clearInterval(this.interval);
+      this.interval = null;
+    }
+  }
+}
