@@ -35,16 +35,6 @@ Most repositories have:
 
 Modern AI tools are only as good as the context they receive. Aether solves this by automatically building and maintaining an **AI-ready knowledge layer** for your project.
 
-## Quick Start
-
-```bash
-# Basic mode — no API key needed, works offline
-npx aether genesis
-
-# AI-powered mode — deep understanding of your code
-npx aether genesis --ai --provider openai
-```
-
 ## How it works
 
 Aether uses a **hybrid approach**: static analysis first, AI second.
@@ -60,17 +50,18 @@ Aether uses a **hybrid approach**: static analysis first, AI second.
 
 Aether scans your project using parsers and heuristics. It detects technologies, maps the structure, identifies entry points, and generates documentation based on patterns. No API key required.
 
-### With AI (`--ai`)
+### With AI
 
 Aether sends optimized context to an LLM provider. The AI understands your business logic, explains complex modules, and generates rich documentation that goes far beyond what static analysis can do.
 
 Supported providers:
 
-| Provider | Flag | Notes |
+| Provider | Command | Notes |
 |----------|------|-------|
-| OpenAI | `--provider openai` | Requires `OPENAI_API_KEY` |
-| Anthropic | `--provider anthropic` | Requires `ANTHROPIC_API_KEY` |
-| Ollama | `--provider ollama` | Local, free, no API key |
+| OpenAI | `/config openai` | Requires `OPENAI_API_KEY` |
+| Anthropic | `/config anthropic` | Requires `ANTHROPIC_API_KEY` |
+| OpenRouter | `/config openrouter` | Requires `OPENROUTER_API_KEY` |
+
 
 ## What happens?
 
@@ -90,37 +81,28 @@ Supported providers:
 ├── architecture.md      # Architecture overview
 ├── context.json         # Machine-readable project context
 ├── docs/                # Module documentation
-├── diagrams/            # Generated diagrams
-└── prompts/             # AI-optimized prompts
+└── diagrams/            # Generated diagrams
 ```
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `aether genesis` | Initialize — analyze and prepare your project |
+| `/genesis` | Initialize — analyze and prepare your project |
 
 More commands coming soon: `sync`, `doctor`, `explain`, `export`.
 
 ## Installation
 
-```bash
-# Run directly (no install needed)
-npx aether genesis
-
-# Or install globally
-npm install -g aether
-```
+> Folloq the link: [Click here](https://aether-docs-sigma.vercel.app/docs/getting-started)
 
 Requires Node.js 20+.
 
 ## Roadmap
 
-- [ ] `aether genesis` — Analyze and prepare a project
-- [ ] `aether sync` — Keep knowledge up to date
-- [ ] `aether doctor` — Validate project health
-- [ ] `aether explain <topic>` — Query the knowledge base
-- [ ] `aether export <target>` — Export context for specific AI tools
+- [X] `genesis` — Analyze and prepare a project
+- [ ] `sync` — Keep knowledge up to date
+- [ ] `doctor` — Validate project health
 - [ ] MCP Server — Expose knowledge to Claude, Cursor, Gemini
 - [ ] VS Code Extension
 
