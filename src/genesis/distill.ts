@@ -40,13 +40,13 @@ export async function distillFiles(
 
   hooks?.onStart?.(chunks.length);
 
-  const notes: string[] = [];
-  for (let i = 0; i < chunks.length; i++) {
-    hooks?.onBatch?.(i + 1, chunks.length);
-
-    const body = chunks[i]
-      .map((f) => `### ${f.path}\n\`\`\`\n${f.content}\n\`\`\``)
-      .join("\n\n");
+  // Chunks are independent, so run them concurrently instead of one-by-one —
+  // the wall-clock win is roughly the concurrency factor. The model itself isn't
+  // faster; we just stop waiting on it serially. Rate-limit hits are absorbed by
+  // chatWithRetry's backoff. Tune with AETHER_DISTILL_CONCURRENCY.
+  let done = 0;
+  const notes = await mapPool(chunks, DISTILL_CONCURRENCY, async (chunk) => {
+    const body = chunk.map((f) => `### ${f.path}\n\`\`\`\n${f.content}\n\`\`\``).join("\n\n");
 
     const response = await chatWithRetry(
       provider,
@@ -58,11 +58,38 @@ export async function distillFiles(
       { onRetry: createRetryLogger() },
     );
 
-    const note = response.content.trim();
-    if (note) notes.push(note);
-  }
+    hooks?.onBatch?.(++done, chunks.length);
+    return response.content.trim();
+  });
 
-  return notes.join("\n\n");
+  return notes.filter(Boolean).join("\n\n");
+}
+
+const DISTILL_CONCURRENCY = (() => {
+  const raw = process.env.AETHER_DISTILL_CONCURRENCY;
+  const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 4;
+})();
+
+/**
+ * Runs `fn` over items with at most `limit` in flight at once, preserving input
+ * order in the result. A worker that throws propagates (chatWithRetry already
+ * handles transient failures, so a throw here is terminal).
+ */
+async function mapPool<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+
+  const worker = async () => {
+    while (true) {
+      const i = next++;
+      if (i >= items.length) break;
+      results[i] = await fn(items[i]);
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
 }
 
 /**

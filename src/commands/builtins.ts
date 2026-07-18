@@ -114,8 +114,13 @@ export function registerBuiltinCommands(): void {
         let sharedContext: string;
         try {
           sharedContext = await buildSharedProjectContext(context, provider, config.model, {
-            onStart: (batches) =>
-              ctxSpinner.setLabel(`Distilling project (${batches} chunk${batches > 1 ? "s" : ""})...`),
+            onStart: (batches) => {
+              ctxSpinner.log(
+                `     ${DIM(`This project is large — condensing it in ${batches} parts so nothing is lost.`)}`,
+              );
+              ctxSpinner.log(`     ${DIM("This can take a few minutes on slower models. Hang tight.")}`);
+              ctxSpinner.setLabel(`Distilling project (${batches} chunk${batches > 1 ? "s" : ""})...`);
+            },
             onBatch: (index, total) => ctxSpinner.setLabel(`Distilling project ${index}/${total}...`),
           });
           ctxSpinner.succeed();
