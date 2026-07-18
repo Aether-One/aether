@@ -12,13 +12,16 @@ export function registerHelpCommand(): void {
       const commands = registry.getAll();
 
       process.stdout.write(`\n${ACCENT("  ⚡ ")}${DIM("aether")}\n\n`);
-      process.stdout.write(chalk.white("     Here's what I can do:\n\n"));
+      process.stdout.write(chalk.white("     Available commands:\n\n"));
 
       for (const cmd of commands) {
         process.stdout.write(`     ${ACCENT(`/${cmd.name}`).padEnd(32)} ${DIM(cmd.description)}\n`);
+        if (cmd.usage) {
+          process.stdout.write(`     ${"".padEnd(20)} ${DIM(cmd.usage)}\n`);
+        }
       }
 
-      process.stdout.write(`\n${DIM("     Or just type a message — I'm here to help.")}\n\n`);
+      process.stdout.write(`\n${DIM("     Tip: use /command help for detailed info on each command.")}\n\n`);
     },
   });
 }
