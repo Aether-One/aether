@@ -165,6 +165,10 @@ export function registerBuiltinCommands(): void {
                 messages: [{ role: "user", content: prompt }],
                 temperature: 0.3,
               },
+              {
+                onRetry: (attempt, maxRetries, _error) =>
+                  runner.setDetail(i, `retry ${attempt}/${maxRetries} — rate limited`),
+              },
             );
 
             // Write file
@@ -329,6 +333,9 @@ export function registerBuiltinCommands(): void {
                 model: config.model,
                 messages: [{ role: "user", content: buildDocPrompt(doc, sharedContext) }],
                 temperature: 0.3,
+              }, {
+                onRetry: (attempt, maxRetries, _error) =>
+                  runner.setDetail(i, `retry ${attempt}/${maxRetries} — rate limited`),
               });
               content = response.content;
             }

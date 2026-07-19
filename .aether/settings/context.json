@@ -1,0 +1,320 @@
+{
+  "generatedAt": "2026-07-19T08:14:05.664Z",
+  "provider": "openrouter",
+  "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+  "git": {
+    "commit": "bc904d921a41376e8bef4639992126c8f677cc8d",
+    "branch": "feat/sync-command",
+    "dirty": true
+  },
+  "files": {
+    "package.json": {
+      "hash": "5106970a48189fb5d3f4aacd6b58b9a6f1a1716230f6cc3f185784a3eb70b435",
+      "size": 918
+    },
+    "tsconfig.json": {
+      "hash": "e9e443d9c4301cbfd3098d0670b14455b1ff4022eba9fbd3fc9241a9786b7e24",
+      "size": 504
+    },
+    "README.md": {
+      "hash": "02981764969fef91a1332c57186954a5a8487eec0cce27d81e9a02949f9b05a5",
+      "size": 4417
+    },
+    "CONTRIBUTING.md": {
+      "hash": "069620a99982710c6bf52ea1b79de1423a9b4a8dda0ffb3925bbb2ee5bf5149f",
+      "size": 2613
+    },
+    "src/cli/index.ts": {
+      "hash": "c48351d83319a0e4275e00f5f6683a30c948563a8df15a4e1e19306e4db54d1a",
+      "size": 1155
+    },
+    "src/prompts/index.ts": {
+      "hash": "e7b381ec545293d2e771a76ddb426a7dd7ee3b228ddc17c72fb95565429f8a47",
+      "size": 1218
+    },
+    "src/config/index.ts": {
+      "hash": "fa622ac3053d9dd683b0639dcd8c0bcc5a77c87e30b3ebb892d0d09b8b442197",
+      "size": 6138
+    },
+    "src/genesis/types.ts": {
+      "hash": "5b5598dc203d4af12852841526220c094557ead25f3a60e44602d07512781ee7",
+      "size": 3497
+    },
+    "src/providers/index.ts": {
+      "hash": "e945aad306d3e5808e8cd3fbaeb7f5d738b6711d3cfc37f0fc5539526e69eb2f",
+      "size": 214
+    },
+    "src/providers/types.ts": {
+      "hash": "d8362b3ca1918799b3e8055adf99a8e76b69e733c0d52627d7c81236ddeeee3b",
+      "size": 652
+    },
+    "src/commands/config.ts": {
+      "hash": "8fb8ebefcf1ce0c763fec669f3ea24344a7d867d28fa964b52a79b306eee5a12",
+      "size": 8256
+    },
+    "src/commands/help.ts": {
+      "hash": "50471c43695ee0ddbee784e9f6b19a4739bbe4cc90258f258a621ae39e5fd7c0",
+      "size": 841
+    },
+    "src/commands/registry.ts": {
+      "hash": "7b0b8291b7abd53d8581126e7686f2aabfce82a8daa5d8a1556d5c79b5f8743f",
+      "size": 1104
+    },
+    "src/config/readme.ts": {
+      "hash": "5e0d91f3aaac015f4a2f3980d5708ea371c51430ca8e9a65950ea9c4ff55408a",
+      "size": 1318
+    },
+    "src/config/scaffold.ts": {
+      "hash": "773d8e4a51a3745bd18ba87dbb16bbe46e982787e390fe374a607454aed5848c",
+      "size": 587
+    },
+    "src/config/types.ts": {
+      "hash": "4c035be657bdc6afd7933ae555041c78cbdb2328b48037e083819b8ff1915961",
+      "size": 384
+    },
+    "src/genesis/constants.ts": {
+      "hash": "346f7ef3d0db09b03650287c8ecd0988359312bd7f6b8e5d748e9340041eb7ad",
+      "size": 1175
+    },
+    "src/genesis/digest.ts": {
+      "hash": "43d9a953373cc0373b26f3338574fc403d87e389700e4c7d56b7a934e619232e",
+      "size": 4263
+    },
+    "src/genesis/distill.ts": {
+      "hash": "96878824408ea9c531ea3d83b75c3a226c1eeddc5d059fef69059f47b31667ac",
+      "size": 4986
+    },
+    "src/genesis/fingerprint.ts": {
+      "hash": "af37d4aa3203ed313d27ed00b20babf52a1de008ea6f2ff53338f26b533ae5d6",
+      "size": 1894
+    },
+    "src/genesis/scope.ts": {
+      "hash": "b776b3c3f3aa9d9672cd08fe5fec131029afc4178bcf31b32d00bc0e2823fe1b",
+      "size": 3123
+    },
+    "src/providers/factory.ts": {
+      "hash": "21e254a04269c69e2f5397f33a4e66413ed0a310e120cdab8681b00e5cb2873c",
+      "size": 920
+    },
+    "src/providers/retry.ts": {
+      "hash": "a0cd79f874a354170e782cccc996c6882c5de0042322441fcf9c58d93d47b3de",
+      "size": 3919
+    },
+    "src/ui/animation.ts": {
+      "hash": "bbb92c5af79cd86c6dd7d8ee820780701895b5b1957e0b345cf8df606aa02939",
+      "size": 2045
+    },
+    "src/prompts/docs/ai-context.ts": {
+      "hash": "79a929e3e42cfb689e1ac924d9b81124e2579141423ebf0abcf55a05524cea82",
+      "size": 911
+    },
+    "src/prompts/docs/api.ts": {
+      "hash": "065ae626692e816723e663909a06120d7bb1b58afd13dc2a407f4b1a8d4d1621",
+      "size": 962
+    },
+    "src/prompts/docs/business.ts": {
+      "hash": "6cb59129dda47ccca0b27b230a9c467e1ed6cf33e985d52073b9b033e8f4d115",
+      "size": 960
+    },
+    "src/prompts/docs/coding-standards.ts": {
+      "hash": "bd069dcbddeee724e23832e7a1c9049341a5d2d5fa62b907ec9cf4d771b45663",
+      "size": 921
+    },
+    "src/prompts/docs/contributing.ts": {
+      "hash": "d02f18f84fad411ff8af8d31b4bf1da6b436e865593d74f9136ed6c48a05703a",
+      "size": 1437
+    },
+    "src/prompts/docs/custom-doc.ts": {
+      "hash": "5a3aa4baaee737e0307ebcf54a3d9cc03f64cd8b2f63bbd5b6a3e431d5f5cc7b",
+      "size": 723
+    },
+    "src/prompts/docs/diagrams.ts": {
+      "hash": "af07b051115c07ad5103a3bc1cf28cd4d9a7db0fa1c4ca6ee9fd247780f869ae",
+      "size": 717
+    },
+    "src/prompts/docs/folder-structure.ts": {
+      "hash": "ccd2419694be419a86b44530884e6b5e50a932f4d0c3732dbbac1791758769d2",
+      "size": 603
+    },
+    "src/prompts/docs/getting-started.ts": {
+      "hash": "2aea6e3460de6e5617631f6458c4b75e1dfedba63863597f83d5d71bd8797bcb",
+      "size": 1804
+    },
+    "src/prompts/docs/glossary.ts": {
+      "hash": "6df99a2225dcd23b961e91cdf60670f05880e18baf18f42e7492ca1582ad9ff1",
+      "size": 581
+    },
+    "src/prompts/docs/modules.ts": {
+      "hash": "1c1a5a405cd53758aefa676bc40386de7cacdcf58f635a0e37ff0693299a6adc",
+      "size": 706
+    },
+    "src/prompts/docs/onboarding.ts": {
+      "hash": "ca7c7ed50dce80ddc99a8be5d25445517c26af7197e6bbcd5b1fbf1d0081b902",
+      "size": 1991
+    },
+    "src/prompts/docs/system-overview.ts": {
+      "hash": "df43d37b9c70fc1699e7cf9d26201ae614753cafae935fdb9e6f15ef7efb796a",
+      "size": 784
+    },
+    "src/prompts/docs/tech-stack.ts": {
+      "hash": "3345c61b954f821b7d3e89812342e3ed8ce4346f3d13fba86379a60bce3e7e17",
+      "size": 786
+    },
+    "src/prompts/pipeline/planner.ts": {
+      "hash": "2f07a163a8fea0ad73b2c74e1342484e94af0b7b9db2302aae1c88de65176bec",
+      "size": 3590
+    },
+    "src/prompts/pipeline/sync.ts": {
+      "hash": "a96e3424f27a50ed441a04934f18fa37127e0a683c3a3353ce9685ea5b6d7206",
+      "size": 3016
+    },
+    "src/commands/builtins.ts": {
+      "hash": "c9d5eefd377a34730a9ddfd4724456aed6bfbe9b6be4cacc54c4d4ac251c8295",
+      "size": 22628
+    },
+    "src/commands/clean.ts": {
+      "hash": "8110414558d4d68d6602e7070304852bf593cf808ae42c33b04747debf46ce12",
+      "size": 13185
+    },
+    "src/genesis/context.ts": {
+      "hash": "c8241a41298bf0dbbca734ae92150deb87c2732934335d194a2767c9821cda9a",
+      "size": 12607
+    },
+    "src/genesis/docs.ts": {
+      "hash": "d1887e8b4632a3c17bde9154f83c7b4ad29672a425093edec9438ee870163fb0",
+      "size": 9430
+    },
+    "src/genesis/planner.ts": {
+      "hash": "f0bcf512d6eda1ad660ef13b87747b8b292e18e826f1724225eded180c56db45",
+      "size": 9502
+    },
+    "src/genesis/sync.ts": {
+      "hash": "ba90417aedcd570257c5fb1811d8eddea42ce0cdc5670a7c03b23dfdb4a8af4c",
+      "size": 13999
+    },
+    "src/prompts/base.ts": {
+      "hash": "0c21e5c6a06cf6db297e6e5bb7b44b62ead87a19c4fa504d00357d5e7a9caca2",
+      "size": 5511
+    },
+    "src/providers/openai-compatible.ts": {
+      "hash": "e951848f25999618a3d71193133858191b7af1e9e0d157c9e8ec5da04e80aaa2",
+      "size": 5102
+    },
+    "src/ui/prompt.ts": {
+      "hash": "e2b5b1ef3ab21a7011e493c2d5c4d70bc4b2029e17c3876d2ff1eff1f845fe1a",
+      "size": 5157
+    },
+    "src/ui/steps.ts": {
+      "hash": "301ef9f989d54bc46e0a6f176da8c8579404e4d294810a0a0ce3d30744740682",
+      "size": 6030
+    },
+    "src/ui/theme.ts": {
+      "hash": "ca4fc2f5b6db2ffdc08517f362c351a5f214a6fb2f46e1f5a94daff5c68c41d1",
+      "size": 372
+    },
+    "src/util/env.ts": {
+      "hash": "6b066e10d3b6758107ae0dde4c107cb733512836bb9611df074265cad086d386",
+      "size": 331
+    }
+  },
+  "docs": [
+    {
+      "id": "getting-started",
+      "outputPath": "docs/guides/getting-started.md",
+      "title": "Getting Started",
+      "section": "Guides",
+      "summary": "Install, configure, and run the project locally."
+    },
+    {
+      "id": "onboarding",
+      "outputPath": "docs/guides/onboarding.md",
+      "title": "Onboarding",
+      "section": "Guides",
+      "summary": "The mental model, the why, and how to make your first change."
+    },
+    {
+      "id": "contributing",
+      "outputPath": "docs/guides/contributing.md",
+      "title": "Contributing",
+      "section": "Guides",
+      "summary": "Conventions, quality gates, and how to submit a change."
+    },
+    {
+      "id": "system-overview",
+      "outputPath": "docs/architecture/system-overview.md",
+      "title": "System Overview",
+      "section": "Architecture",
+      "summary": "High-level architecture and how the system fits together."
+    },
+    {
+      "id": "folder-structure",
+      "outputPath": "docs/architecture/folder-structure.md",
+      "title": "Folder Structure",
+      "section": "Architecture",
+      "summary": "Directory layout and where things live."
+    },
+    {
+      "id": "tech-stack",
+      "outputPath": "docs/architecture/tech-stack.md",
+      "title": "Tech Stack",
+      "section": "Architecture",
+      "summary": "Languages, frameworks, and key dependencies."
+    },
+    {
+      "id": "modules",
+      "outputPath": "docs/modules/overview.md",
+      "title": "Modules Overview",
+      "section": "Architecture",
+      "summary": "Per-module breakdown of responsibilities and exports."
+    },
+    {
+      "id": "diagrams",
+      "outputPath": "docs/diagrams/system.md",
+      "title": "Diagrams",
+      "section": "Architecture",
+      "summary": "Visual diagrams of the system and its relationships."
+    },
+    {
+      "id": "coding-standards",
+      "outputPath": "docs/architecture/coding-standards.md",
+      "title": "Coding Standards",
+      "section": "Reference",
+      "summary": "Code patterns and conventions used across the project."
+    },
+    {
+      "id": "api",
+      "outputPath": "docs/api/endpoints.md",
+      "title": "API Reference",
+      "section": "Reference",
+      "summary": "API surface — endpoints or CLI commands."
+    },
+    {
+      "id": "business",
+      "outputPath": "docs/business/rules.md",
+      "title": "Business Rules",
+      "section": "Reference",
+      "summary": "Business rules and domain logic."
+    },
+    {
+      "id": "ai-context",
+      "outputPath": "docs/AI_CONTEXT.md",
+      "title": "AI Context",
+      "section": "AI Context",
+      "summary": "System prompt for AI assistants working on this project."
+    },
+    {
+      "id": "glossary",
+      "outputPath": "docs/glossary.md",
+      "title": "Glossary",
+      "section": "Reference",
+      "summary": "Domain-specific terms and definitions."
+    },
+    {
+      "id": "custom:deployment/sea-build.md",
+      "outputPath": "docs/deployment/sea-build.md",
+      "title": "Single Executable Application Build",
+      "section": "Project-specific",
+      "summary": "How the project is packaged into a standalone binary using esbuild and postject via scripts/build-sea.mjs and sea-config.json, enabling distribution without Node.js runtime dependencies."
+    }
+  ]
+}
