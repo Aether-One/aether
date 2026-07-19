@@ -1,75 +1,83 @@
+import { createHash } from "node:crypto";
 import type { LLMProvider } from "../providers/types.js";
 import { chatWithRetry, createRetryLogger } from "../providers/retry.js";
+import type { FileContent, DistillCache, DistillHooks } from "./types.js";
+import { DISTILL_CONCURRENCY } from "./constants.js";
 
-export interface FileContent {
-  path: string;
-  content: string;
-}
+export type { FileContent, DistillCache, DistillHooks } from "./types.js";
 
 const DEFAULT_PURPOSE =
   "writing complete developer documentation for this project (architecture, modules, " +
   "public API / CLI commands, domain rules, and setup/usage)";
 
-export interface DistillHooks {
-  /** Called once we know how many summarize calls this doc needs. */
-  onStart?: (batches: number) => void;
-  /** Called before each summarize call (1-indexed). */
-  onBatch?: (index: number, total: number) => void;
-}
+const hashContent = (s: string): string => createHash("sha256").update(s).digest("hex");
 
 /**
- * Divide-and-conquer for a doc whose relevant code doesn't fit the budget:
- * chunk the files → summarize each chunk into factual notes → concatenate.
- * The notes replace raw code in the final generation prompt, so nothing is
- * dropped (unlike a hard budget cut) — it's just compressed, one chunk at a time.
- *
- * Slower on weak models (N extra calls), but that's the accepted trade for
- * covering a project that would otherwise overflow the context window.
+ * Distills files into factual notes, reusing a previous cache for files whose content
+ * is unchanged — so /sync only pays for what actually changed. Notes replace raw code
+ * in the generation prompt, so nothing is dropped; it's just compressed once per file
+ * and remembered. Returns the assembled notes plus the refreshed cache to persist.
  */
-export async function distillFiles(
+export async function distillFilesIncremental(
   files: FileContent[],
   provider: LLMProvider,
   model: string,
   budget: number,
+  prev: DistillCache | null,
   hooks?: DistillHooks,
-  purpose: string = DEFAULT_PURPOSE,
-): Promise<string> {
-  // Leave headroom in each chunk for the instruction wrapper.
-  const chunkBudget = Math.max(4_000, Math.floor(budget * 0.75));
-  const chunks = chunkFiles(files, chunkBudget);
+): Promise<{ notes: string; cache: DistillCache }> {
+  // A cache built with a different model can't be trusted — notes depend on the model.
+  const reusable = prev && prev.model === model ? prev.files : {};
+  const cache: DistillCache = { model, files: {} };
 
-  hooks?.onStart?.(chunks.length);
+  const stale: FileContent[] = [];
+  for (const file of files) {
+    const hit = reusable[file.path];
+    if (hit && hit.hash === hashContent(file.content)) {
+      cache.files[file.path] = hit;
+    } else {
+      stale.push(file);
+    }
+  }
 
-  // Chunks are independent, so run them concurrently instead of one-by-one —
-  // the wall-clock win is roughly the concurrency factor. The model itself isn't
-  // faster; we just stop waiting on it serially. Rate-limit hits are absorbed by
-  // chatWithRetry's backoff. Tune with AETHER_DISTILL_CONCURRENCY.
+  hooks?.onStart?.(stale.length);
+
+  // Only stale files hit the model — one call per file so each can be cached on its own.
+  // Independent, so run concurrently; tune with AETHER_DISTILL_CONCURRENCY.
   let done = 0;
-  const notes = await mapPool(chunks, DISTILL_CONCURRENCY, async (chunk) => {
-    const body = chunk.map((f) => `### ${f.path}\n\`\`\`\n${f.content}\n\`\`\``).join("\n\n");
-
-    const response = await chatWithRetry(
-      provider,
-      {
-        model,
-        messages: [{ role: "user", content: `${distillInstruction(purpose)}\n\n${body}` }],
-        temperature: 0,
-      },
-      { onRetry: createRetryLogger() },
-    );
-
-    hooks?.onBatch?.(++done, chunks.length);
-    return response.content.trim();
+  await mapPool(stale, DISTILL_CONCURRENCY, async (file) => {
+    const notes = await distillSingle(file, provider, model, budget);
+    cache.files[file.path] = { hash: hashContent(file.content), notes };
+    hooks?.onBatch?.(++done, stale.length);
   });
 
-  return notes.filter(Boolean).join("\n\n");
+  const notes = files.map((f) => cache.files[f.path]?.notes).filter(Boolean).join("\n\n");
+  return { notes, cache };
 }
 
-const DISTILL_CONCURRENCY = (() => {
-  const raw = process.env.AETHER_DISTILL_CONCURRENCY;
-  const parsed = raw ? Number.parseInt(raw, 10) : NaN;
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 4;
-})();
+/** Distills one file, slicing it if it alone exceeds the budget. */
+async function distillSingle(file: FileContent, provider: LLMProvider, model: string, budget: number): Promise<string> {
+  const units: FileContent[] =
+    file.content.length > budget
+      ? Array.from({ length: Math.ceil(file.content.length / budget) }, (_, p) => ({
+          path: `${file.path} (part ${p + 1})`,
+          content: file.content.slice(p * budget, (p + 1) * budget),
+        }))
+      : [file];
+
+  const parts: string[] = [];
+  for (const unit of units) {
+    const body = `### ${unit.path}\n\`\`\`\n${unit.content}\n\`\`\``;
+    const response = await chatWithRetry(
+      provider,
+      { model, messages: [{ role: "user", content: `${distillInstruction(DEFAULT_PURPOSE)}\n\n${body}` }], temperature: 0 },
+      { onRetry: createRetryLogger() },
+    );
+    parts.push(response.content.trim());
+  }
+  return parts.filter(Boolean).join("\n\n");
+}
+
 
 /**
  * Runs `fn` over items with at most `limit` in flight at once, preserving input
@@ -115,40 +123,3 @@ function distillInstruction(purpose: string): string {
   ].join("\n");
 }
 
-/**
- * Packs files into chunks that each stay under `budget` characters. Small files
- * are grouped together; a single file larger than the budget is sliced into
- * budget-sized parts so even one huge file never overflows a chunk.
- */
-function chunkFiles(files: FileContent[], budget: number): FileContent[][] {
-  const chunks: FileContent[][] = [];
-  let current: FileContent[] = [];
-  let currentLen = 0;
-
-  const flush = () => {
-    if (current.length > 0) {
-      chunks.push(current);
-      current = [];
-      currentLen = 0;
-    }
-  };
-
-  for (const file of files) {
-    if (file.content.length > budget) {
-      flush();
-      const parts = Math.ceil(file.content.length / budget);
-      for (let p = 0; p < parts; p++) {
-        const slice = file.content.slice(p * budget, (p + 1) * budget);
-        chunks.push([{ path: `${file.path} (part ${p + 1}/${parts})`, content: slice }]);
-      }
-      continue;
-    }
-
-    if (currentLen + file.content.length > budget) flush();
-    current.push(file);
-    currentLen += file.content.length;
-  }
-
-  flush();
-  return chunks;
-}

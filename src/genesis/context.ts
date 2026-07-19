@@ -1,23 +1,10 @@
 import { readFile, readdir, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, relative, extname, basename } from "node:path";
+import type { ProjectContext } from "./types.js";
+import { MAX_FILE_SIZE, MAX_TOTAL_CHARS, MAX_FILES_WALKED, MAX_WALK_DEPTH } from "./constants.js";
 
-export interface ProjectContext {
-  name: string;
-  description?: string;
-  rootDir: string;
-  configFiles: FileContent[];
-  visionFiles: FileContent[];
-  entryPoints: FileContent[];
-  sourceFiles: FileContent[];
-  directoryTree: string;
-  omittedFiles: string[];
-}
-
-interface FileContent {
-  path: string;
-  content: string;
-}
+export type { ProjectContext } from "./types.js";
 
 // Config files that reveal project identity
 const CONFIG_FILES = [
@@ -51,18 +38,6 @@ const SOURCE_EXTENSIONS = new Set([
   ".ts", ".tsx", ".js", ".jsx", ".py", ".rs", ".go", ".java",
   ".kt", ".rb", ".ex", ".exs", ".php", ".swift", ".vue", ".svelte",
 ]);
-
-const envInt = (name: string, fallback: number): number => {
-  const raw = process.env[name];
-  if (!raw) return fallback;
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-};
-
-const MAX_FILE_SIZE = envInt("AETHER_MAX_FILE_SIZE", 128_000);
-const MAX_TOTAL_CHARS = envInt("AETHER_MAX_TOTAL_CHARS", 2_000_000);
-const MAX_FILES_WALKED = envInt("AETHER_MAX_FILES_WALKED", 10_000);
-const MAX_WALK_DEPTH = envInt("AETHER_MAX_WALK_DEPTH", 12);
 
 export async function scanContext(rootDir: string): Promise<ProjectContext> {
   const context: ProjectContext = {

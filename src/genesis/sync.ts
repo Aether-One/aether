@@ -3,56 +3,47 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { LLMProvider } from "../providers/types.js";
 import { chatWithRetry, createRetryLogger, type RetryOptions } from "../providers/retry.js";
-import { getSettingsDir } from "../config/index.js";
 import { BASE_PROMPT, PROMPT_SUFFIX, SYNC_PLANNER_PROMPT } from "../prompts/index.js";
-import type { ProjectContext } from "./context.js";
 import {
   DOC_DEFINITIONS,
   buildCustomDocDefinition,
-  type DocDefinition,
-  type DocSection,
+  buildSectionPatchPrompt,
+  buildDocUpdatePrompt,
 } from "./docs.js";
-import { buildFingerprint, getGitInfo, type FileFingerprint } from "./fingerprint.js";
+import { buildFingerprint, getGitInfo } from "./fingerprint.js";
 import { parsePlan, extractJsonArray } from "./planner.js";
+import type {
+  ProjectContext,
+  DocDefinition,
+  DocMeta,
+  Snapshot,
+  FileDiff,
+  SyncPlan,
+  SectionPatch,
+  FileFingerprint,
+} from "./types.js";
 
-/** Metadata stored per doc in the snapshot — enough to rebuild the index and regenerate. */
-export interface DocMeta {
-  id: string;
-  outputPath: string;
-  title: string;
-  section: DocSection;
-  summary: string;
-}
-
-/** `.aether/settings/context.json` — the point a genesis/sync run was taken from. */
-export interface Snapshot {
-  generatedAt: string;
-  provider: string;
-  model: string;
-  git?: { commit: string; branch: string; dirty: boolean };
-  files: Record<string, FileFingerprint>;
-  docs: DocMeta[];
-}
-
-export interface FileDiff {
-  added: string[];
-  modified: string[];
-  deleted: string[];
-}
-
-/** A sync plan: existing docs to refresh, and brand-new docs to add. Never deletes. */
-export interface SyncPlan {
-  regenerate: DocDefinition[];
-  add: DocDefinition[];
-}
+export type { DocMeta, Snapshot, FileDiff, SyncPlan, SectionPatch } from "./types.js";
 
 const MAX_PLAN_ATTEMPTS = 3;
 const MAX_LISTED_FILES = 60;
 const ANCHOR_IDS = ["system-overview", "folder-structure", "tech-stack", "ai-context"];
 
+/** The snapshot lives at .aether/settings/context.json; the older layout kept it at the root. */
+function snapshotPath(rootDir: string): string {
+  return join(rootDir, ".aether", "settings", "context.json");
+}
+
+function resolveSnapshotPath(rootDir: string): string | null {
+  const current = snapshotPath(rootDir);
+  if (existsSync(current)) return current;
+  const legacy = join(rootDir, ".aether", "context.json");
+  return existsSync(legacy) ? legacy : null;
+}
+
 export async function loadSnapshot(rootDir: string): Promise<Snapshot | null> {
-  const path = join(getSettingsDir(rootDir), "context.json");
-  if (!existsSync(path)) return null;
+  const path = resolveSnapshotPath(rootDir);
+  if (!path) return null;
 
   try {
     const parsed = JSON.parse(await readFile(path, "utf-8"));
@@ -212,10 +203,9 @@ export async function writeSnapshot(
   context: ProjectContext,
   docs: DocMeta[],
 ): Promise<void> {
-  const settingsDir = getSettingsDir(rootDir);
-  await mkdir(settingsDir, { recursive: true });
+  await mkdir(join(rootDir, ".aether", "settings"), { recursive: true });
   await writeFile(
-    join(settingsDir, "context.json"),
+    snapshotPath(rootDir),
     JSON.stringify(
       {
         generatedAt: new Date().toISOString(),
@@ -230,6 +220,167 @@ export async function writeSnapshot(
     ),
     "utf-8",
   );
+}
+
+/** Compact change text passed to an update prompt so the model knows what to patch. */
+export function formatChanges(diff: FileDiff, gitLog: string | null): string {
+  const parts: string[] = [];
+  const line = (label: string, files: string[]) => {
+    if (files.length === 0) return;
+    const shown = files.slice(0, 40).join(", ");
+    parts.push(`${label}: ${shown}${files.length > 40 ? `, +${files.length - 40} more` : ""}`);
+  };
+
+  line("Added files", diff.added);
+  line("Modified files", diff.modified);
+  line("Removed files", diff.deleted);
+  if (gitLog) parts.push(`Recent commit messages:\n${gitLog}`);
+
+  return parts.join("\n") || "No file-level changes detected.";
+}
+
+// --- Section-level patching: refresh a doc by replacing ONLY the affected
+// --- sections, keeping every other section byte-for-byte.
+
+interface RawSection {
+  key: string;
+  heading: string;
+  text: string;
+}
+
+const H2_RE = /^##[ \t].*$/gm;
+
+function normHeading(heading: string): string {
+  return heading.replace(/^#+\s*/, "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function splitSections(md: string): { preamble: string; sections: RawSection[] } {
+  const matches = [...md.matchAll(H2_RE)];
+  if (matches.length === 0) return { preamble: md, sections: [] };
+
+  const preamble = md.slice(0, matches[0].index);
+  const sections: RawSection[] = [];
+  for (let k = 0; k < matches.length; k++) {
+    const start = matches[k].index ?? 0;
+    const end = k + 1 < matches.length ? matches[k + 1].index ?? md.length : md.length;
+    const headingLine = matches[k][0];
+    sections.push({
+      key: normHeading(headingLine),
+      heading: headingLine.replace(/^#+\s*/, "").trim(),
+      text: md.slice(start, end),
+    });
+  }
+  return { preamble, sections };
+}
+
+/** Ensures a section body carries its heading and a trailing blank line for clean joins. */
+function normalizeSection(patch: SectionPatch): string {
+  let body = patch.content.trim();
+  if (!body.startsWith("#")) body = `## ${patch.heading.replace(/^#+\s*/, "").trim()}\n\n${body}`;
+  return `${body}\n\n`;
+}
+
+/**
+ * Rebuilds the document from its existing sections, swapping in the patched ones and
+ * inserting new ones. Sections not named in `patches` are emitted unchanged — the whole
+ * point: the model never gets to touch text it didn't explicitly rewrite.
+ */
+export function applySectionPatch(existingDoc: string, patches: SectionPatch[]): string {
+  const { preamble, sections } = splitSections(existingDoc);
+  if (sections.length === 0 || patches.length === 0) return existingDoc;
+
+  const byKey = new Map(patches.map((p) => [normHeading(p.heading), p]));
+  const used = new Set<string>();
+
+  const rebuilt = sections.map((sec) => {
+    const patch = byKey.get(sec.key);
+    if (!patch) return { key: sec.key, text: sec.text };
+    used.add(sec.key);
+    return { key: sec.key, text: normalizeSection(patch) };
+  });
+
+  // Patches that didn't match an existing section are NEW sections — insert after their
+  // anchor if given, else append. Never remove anything.
+  for (const patch of patches) {
+    const key = normHeading(patch.heading);
+    if (used.has(key)) continue;
+    used.add(key);
+    const entry = { key, text: normalizeSection(patch) };
+    const afterIdx = patch.after ? rebuilt.findIndex((s) => s.key === normHeading(patch.after!)) : -1;
+    if (afterIdx >= 0) rebuilt.splice(afterIdx + 1, 0, entry);
+    else rebuilt.push(entry);
+  }
+
+  return `${preamble}${rebuilt.map((s) => s.text).join("")}`.trimEnd() + "\n";
+}
+
+function toSectionPatches(arr: unknown[]): SectionPatch[] {
+  const out: SectionPatch[] = [];
+  for (const entry of arr) {
+    if (!entry || typeof entry !== "object") continue;
+    const obj = entry as Record<string, unknown>;
+    if (typeof obj.heading !== "string" || typeof obj.content !== "string") continue;
+    out.push({
+      heading: obj.heading,
+      content: obj.content,
+      after: typeof obj.after === "string" ? obj.after : undefined,
+    });
+  }
+  return out;
+}
+
+const SECTION_STRICT =
+  "CRITICAL: Output ONLY the raw JSON array of changed sections. No prose, no code fences.";
+
+/**
+ * Refreshes an existing doc using section-level patching: only the sections the model
+ * marks as affected are rewritten; everything else is preserved exactly. Falls back to
+ * a conservative full-document update if the doc has no sections or the model won't
+ * produce a valid patch list (so a change is never silently dropped).
+ */
+export async function refreshDoc(
+  doc: DocDefinition,
+  context: string,
+  existingDoc: string,
+  changes: string,
+  provider: LLMProvider,
+  model: string,
+): Promise<string> {
+  const { sections } = splitSections(existingDoc);
+  if (sections.length === 0) {
+    return fullUpdate(doc, context, existingDoc, changes, provider, model);
+  }
+
+  const prompt = buildSectionPatchPrompt(doc, context, existingDoc, changes, sections.map((s) => s.heading));
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const content = attempt === 1 ? prompt : `${prompt}\n\n${SECTION_STRICT}`;
+    const response = await chatWithRetry(provider, {
+      model,
+      messages: [{ role: "user", content }],
+      temperature: 0,
+    });
+    const arr = extractJsonArray(response.content);
+    if (arr) return applySectionPatch(existingDoc, toSectionPatches(arr));
+  }
+
+  return fullUpdate(doc, context, existingDoc, changes, provider, model);
+}
+
+async function fullUpdate(
+  doc: DocDefinition,
+  context: string,
+  existingDoc: string,
+  changes: string,
+  provider: LLMProvider,
+  model: string,
+): Promise<string> {
+  const response = await chatWithRetry(provider, {
+    model,
+    messages: [{ role: "user", content: buildDocUpdatePrompt(doc, context, existingDoc, changes) }],
+    temperature: 0,
+  });
+  return response.content;
 }
 
 function buildChangeSummary(diff: FileDiff, existingDocs: DocMeta[], gitLog: string | null): string {

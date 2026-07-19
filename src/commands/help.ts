@@ -1,8 +1,7 @@
 import chalk from "chalk";
 import { registry } from "./registry.js";
 
-const ACCENT = chalk.hex("#895bf4");
-const DIM = chalk.dim;
+import { ACCENT, DIM } from "../ui/theme.js";
 
 export function registerHelpCommand(): void {
   registry.register({

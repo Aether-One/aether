@@ -1,8 +1,6 @@
 import chalk from "chalk";
 
-const ACCENT = chalk.hex("#895bf4");
-const DIM = chalk.dim;
-const SUCCESS = chalk.green;
+import { ACCENT, DIM, SUCCESS } from "./theme.js";
 const FAIL = chalk.red;
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];

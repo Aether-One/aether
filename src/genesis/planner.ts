@@ -4,9 +4,7 @@ import { chatWithRetry, createRetryLogger, type RetryOptions } from "../provider
 import { DOC_DEFINITIONS, buildCustomDocDefinition, type DocDefinition, type CustomDocSpec } from "./docs.js";
 import { BASE_PROMPT, PROMPT_SUFFIX, PLANNER_PROMPT } from "../prompts/index.js";
 
-const DIM = chalk.dim;
-const ACCENT = chalk.hex("#895bf4");
-const WARN = chalk.yellow;
+import { ACCENT, DIM, WARN } from "../ui/theme.js";
 
 /**
  * Always generated regardless of what the planner returns — keeps every project anchored.

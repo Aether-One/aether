@@ -1,17 +1,8 @@
 import { createHash } from "node:crypto";
 import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
-import type { ProjectContext } from "./context.js";
+import type { ProjectContext, FileFingerprint, GitInfo } from "./types.js";
 
-export interface FileFingerprint {
-  hash: string;
-  size: number;
-}
-
-export interface GitInfo {
-  commit: string;
-  branch: string;
-  dirty: boolean;
-}
+export type { FileFingerprint, GitInfo } from "./types.js";
 
 /** sha256 of every file that fed the context, keyed by forward-slashed path. */
 export function buildFingerprint(context: ProjectContext): Record<string, FileFingerprint> {

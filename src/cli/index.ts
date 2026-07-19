@@ -5,6 +5,7 @@ import { startChat } from "../ui/prompt.js";
 import { registerHelpCommand } from "../commands/help.js";
 import { registerBuiltinCommands } from "../commands/builtins.js";
 import { registerConfigCommand } from "../commands/config.js";
+import { registerCleanCommand } from "../commands/clean.js";
 
 declare const __AETHER_VERSION__: string;
 const VERSION = typeof __AETHER_VERSION__ !== "undefined"
@@ -20,6 +21,7 @@ async function main(): Promise<void> {
   registerHelpCommand();
   registerBuiltinCommands();
   registerConfigCommand();
+  registerCleanCommand();
 
   const isInteractive = process.stdin.isTTY ?? false;
   const noAnimation = process.argv.includes("--no-animation");

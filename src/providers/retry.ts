@@ -1,8 +1,7 @@
 import chalk from "chalk";
 import type { LLMProvider, ChatRequest, ChatResponse } from "../providers/types.js";
 
-const DIM = chalk.dim;
-const WARN = chalk.yellow;
+import { DIM, WARN } from "../ui/theme.js";
 
 export interface RetryOptions {
   maxRetries: number;

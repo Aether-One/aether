@@ -1,37 +1,33 @@
 import chalk from "chalk";
 import { registry } from "./registry.js";
 import { loadConfig } from "../config/index.js";
+import { ensureProjectReadme } from "../config/scaffold.js";
+import { GEN_CONCURRENCY } from "../genesis/constants.js";
 import { createProvider } from "../providers/factory.js";
 import { chatWithRetry, formatRetryLine } from "../providers/retry.js";
 import { scanContext } from "../genesis/context.js";
 import { buildPlannerDigest } from "../genesis/digest.js";
 import { planDocs } from "../genesis/planner.js";
 import { buildSharedProjectContext } from "../genesis/scope.js";
-import { buildDocsIndex } from "../genesis/docs.js";
+import { buildDocsIndex, buildDocPrompt } from "../genesis/docs.js";
 import { getGitLog } from "../genesis/fingerprint.js";
 import {
   loadSnapshot,
   diffFingerprint,
   hasChanges,
   planSync,
+  refreshDoc,
   writeSnapshot,
   metaFromDefinition,
   mergeDocMetas,
+  formatChanges,
 } from "../genesis/sync.js";
 import { StepRunner, LineSpinner } from "../ui/steps.js";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { existsSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
 
-const ACCENT = chalk.hex("#895bf4");
-const DIM = chalk.dim;
-const SUCCESS = chalk.green;
-
-/** How many docs to generate concurrently. Override with AETHER_GEN_CONCURRENCY. */
-function genConcurrency(): number {
-  const parsed = Number.parseInt(process.env.AETHER_GEN_CONCURRENCY ?? "", 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 4;
-}
+import { ACCENT, DIM, SUCCESS } from "../ui/theme.js";
 
 export function registerBuiltinCommands(): void {
   registry.register({
@@ -158,10 +154,10 @@ export function registerBuiltinCommands(): void {
         // model call, but the wall-clock drops by the concurrency factor.
         // Tune with AETHER_GEN_CONCURRENCY.
         try {
-          await runner.runPooled(genConcurrency(), async (i) => {
+          await runner.runPooled(GEN_CONCURRENCY, async (i) => {
             const doc = docsToGenerate[i];
             // Every doc is generated from the same complete context.
-            const prompt = doc.buildPrompt(sharedContext);
+            const prompt = buildDocPrompt(doc, sharedContext);
             const response = await chatWithRetry(
               provider,
               {
@@ -194,6 +190,7 @@ export function registerBuiltinCommands(): void {
           context,
           docsToGenerate.map(metaFromDefinition),
         );
+        await ensureProjectReadme(targetDir);
 
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
         runner.finish(`Genesis complete in ${elapsed}s → .aether/docs/`);
@@ -278,8 +275,11 @@ export function registerBuiltinCommands(): void {
           throw err;
         }
 
-        const docsToWrite = [...plan.regenerate, ...plan.add];
-        if (docsToWrite.length === 0) {
+        const jobs = [
+          ...plan.regenerate.map((doc) => ({ doc, update: true })),
+          ...plan.add.map((doc) => ({ doc, update: false })),
+        ];
+        if (jobs.length === 0) {
           // Advance the baseline so the same changes aren't re-flagged next run.
           await writeSnapshot(targetDir, { provider: config.provider, model: config.model }, context, snapshot.docs);
           process.stdout.write(`\n     ${SUCCESS("✓")} ${DIM("Those changes don't affect any docs. Nothing to update.")}\n\n`);
@@ -304,26 +304,38 @@ export function registerBuiltinCommands(): void {
           throw err;
         }
 
-        // Write the affected subset. Existing files are overwritten with fresh
-        // content; nothing is ever deleted.
+        // Refreshed docs are patched in update-mode — the model gets the current doc
+        // and only revises what the change touched; nothing is deleted. New docs are
+        // generated from scratch.
+        const changeText = formatChanges(diff, gitLog);
         const runner = new StepRunner("updating docs");
-        for (const doc of docsToWrite) runner.addStep(doc.label);
+        for (const { doc } of jobs) runner.addStep(doc.label);
         runner.start();
         const startTime = Date.now();
         const aetherDir = join(targetDir, ".aether");
 
         try {
-          await runner.runPooled(genConcurrency(), async (i) => {
-            const doc = docsToWrite[i];
-            const response = await chatWithRetry(provider, {
-              model: config.model,
-              messages: [{ role: "user", content: doc.buildPrompt(sharedContext) }],
-              temperature: 0.3,
-            });
-            runner.setWriting(i);
+          await runner.runPooled(GEN_CONCURRENCY, async (i) => {
+            const { doc, update } = jobs[i];
             const outputPath = join(aetherDir, doc.outputPath);
+            const existing = update ? await readFileSafe(outputPath) : null;
+
+            let content: string;
+            if (existing) {
+              // Section-level patch: rewrite only the affected sections, keep the rest.
+              content = await refreshDoc(doc, sharedContext, existing, changeText, provider, config.model);
+            } else {
+              const response = await chatWithRetry(provider, {
+                model: config.model,
+                messages: [{ role: "user", content: buildDocPrompt(doc, sharedContext) }],
+                temperature: 0.3,
+              });
+              content = response.content;
+            }
+
+            runner.setWriting(i);
             await mkdir(dirname(outputPath), { recursive: true });
-            await writeFile(outputPath, response.content, "utf-8");
+            await writeFile(outputPath, content, "utf-8");
           });
         } catch (err) {
           runner.error(`Failed updating docs: ${formatError(err)}`);
@@ -336,6 +348,7 @@ export function registerBuiltinCommands(): void {
         await mkdir(dirname(indexPath), { recursive: true });
         await writeFile(indexPath, buildDocsIndex(context.name, mergedDocs), "utf-8");
         await writeSnapshot(targetDir, { provider: config.provider, model: config.model }, context, mergedDocs);
+        await ensureProjectReadme(targetDir);
 
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
         runner.finish(`Sync complete in ${elapsed}s — ${plan.regenerate.length} refreshed, ${plan.add.length} added`);
@@ -400,6 +413,14 @@ function showGenesisHelp(): void {
   process.stdout.write(`     ${DIM("won't get api/endpoints.md just because it's in the catalog.\n\n")}`);
   process.stdout.write(`     ${DIM("The planner picks which of the above fit this project, and may add a")}\n`);
   process.stdout.write(`     ${DIM("few extra docs (e.g. a deployment pipeline) if something deserves one.\n\n")}`);
+}
+
+async function readFileSafe(path: string): Promise<string | null> {
+  try {
+    return await readFile(path, "utf-8");
+  } catch {
+    return null;
+  }
 }
 
 function showSyncHelp(): void {

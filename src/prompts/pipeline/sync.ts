@@ -18,3 +18,30 @@ Rules:
 Respond with ONLY the JSON array, no explanation. Example:
 ["tech-stack", "system-overview", { "path": "deployment/build-pipeline.md", "title": "Build Pipeline", "focus": "The new packaging step and what it produces." }]
 `.trim();
+
+export const SECTION_PATCH_INSTRUCTIONS = `
+Return ONLY a JSON array of the sections that must change because of the change described above.
+LEAVE OUT every section that isn't affected — anything you omit is kept byte-for-byte, so never
+include a section just to reword it.
+
+Each array element is an object:
+{ "heading": "<exact heading text of an existing section, without the ## >", "content": "<the full new markdown for that section, INCLUDING its ## heading line>" }
+
+To ADD a brand-new section, use a heading not in the list and add "after": "<existing heading it should follow>".
+
+Rules:
+- Include a section ONLY if the change actually affects its content. If nothing is affected, return [].
+- Copy existing headings EXACTLY as shown in the list — never rename or reorder them.
+- Do not touch, mention, or repeat unaffected sections.
+- Respond with ONLY the JSON array, no prose, no code fences.
+`.trim();
+
+export const DOC_UPDATE_INSTRUCTIONS = `
+You are UPDATING the existing document shown above, not writing a new one from scratch.
+
+Produce the updated document by making the SMALLEST changes needed to reflect what changed:
+- Keep every part that is still accurate exactly as it is — same structure, headings, wording, and order.
+- Only add, edit, or remove the specific pieces the changes actually affect.
+- Do NOT rewrite, rephrase, or reorder sections the changes don't touch.
+- Return the COMPLETE updated document (not a diff), ready to overwrite the file.
+`.trim();

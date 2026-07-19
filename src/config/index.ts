@@ -1,20 +1,11 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
-import { ensureAetherScaffold } from "./scaffold.js";
+import { join, resolve, basename } from "node:path";
+import { homedir } from "node:os";
+import { createHash } from "node:crypto";
+import type { AetherConfig } from "./types.js";
 
-export interface AetherConfig {
-  provider: "openai" | "anthropic" | "gemini" | "openrouter";
-  model: string;
-  baseUrl: string;
-  apiKey?: string;
-  /**
-   * Idle timeout in ms — abort a request only after this long with no data.
-   * Optional; the provider picks a sensible default. Raise it for very slow
-   * free-tier models with long queue times.
-   */
-  timeout?: number;
-}
+export type { AetherConfig } from "./types.js";
 
 const DEFAULT_CONFIGS: Record<string, Partial<AetherConfig>> = {
   openai: {
@@ -58,40 +49,103 @@ export function detectProviderFromBaseUrl(baseUrl: string): AetherConfig["provid
   return match ? match.provider : null;
 }
 
-/** Machine state lives in `.aether/settings/`: config.json (local) and context.json (snapshot). */
-export function getSettingsDir(rootDir: string): string {
-  return join(rootDir, ".aether", "settings");
+/** Global user dir — config (with the API key) and caches live here, never in the repo. */
+export function getGlobalDir(): string {
+  return join(homedir(), ".aether");
 }
 
-export function getConfigPath(rootDir: string): string {
-  return join(getSettingsDir(rootDir), "config.json");
+export function getGlobalConfigPath(): string {
+  return join(getGlobalDir(), "config.json");
 }
 
-// Pre-settings/ layout kept config at .aether/config.json — read it as a fallback.
-function getLegacyConfigPath(rootDir: string): string {
-  return join(rootDir, ".aether", "config.json");
+/** Stable id for a project (its folder name + a hash of its absolute path). */
+function projectId(rootDir: string): string {
+  const abs = resolve(rootDir);
+  return `${basename(abs)}-${createHash("sha1").update(abs).digest("hex").slice(0, 12)}`;
 }
 
-export async function loadConfig(rootDir: string): Promise<AetherConfig | null> {
-  const configPath = getConfigPath(rootDir);
-  const readPath = existsSync(configPath)
-    ? configPath
-    : existsSync(getLegacyConfigPath(rootDir))
-      ? getLegacyConfigPath(rootDir)
-      : null;
-  if (!readPath) return null;
+/** Per-project cache dir under the global tree. */
+export function getProjectCacheDir(rootDir: string): string {
+  return join(getGlobalDir(), "cache", projectId(rootDir));
+}
 
+/**
+ * The global config file holds a shared `default` plus per-project entries — one machine,
+ * many projects, each able to use a different provider/model/key without touching the repo.
+ */
+interface GlobalConfigFile {
+  default?: Partial<AetherConfig>;
+  projects?: Record<string, Partial<AetherConfig>>;
+}
+
+// Optional committed, NON-secret per-project overrides (provider/model), and legacy
+// in-repo locations, read for back-compat. Merged over the resolved global config.
+function projectConfigPaths(rootDir: string): string[] {
+  return [
+    join(rootDir, ".aether", "config.json"),
+    join(rootDir, ".aether", "settings", "config.json"),
+  ];
+}
+
+async function readJsonConfig(path: string): Promise<Partial<AetherConfig> | null> {
+  if (!existsSync(path)) return null;
   try {
-    return JSON.parse(await readFile(readPath, "utf-8")) as AetherConfig;
+    return JSON.parse(await readFile(path, "utf-8")) as Partial<AetherConfig>;
   } catch {
     return null;
   }
 }
 
+async function readGlobalFile(): Promise<GlobalConfigFile> {
+  const path = getGlobalConfigPath();
+  if (!existsSync(path)) return {};
+  try {
+    const parsed = JSON.parse(await readFile(path, "utf-8"));
+    if (parsed && typeof parsed === "object") {
+      // New keyed shape, or a legacy flat config (treat the whole thing as the default).
+      return parsed.projects || parsed.default ? (parsed as GlobalConfigFile) : { default: parsed };
+    }
+  } catch {
+    /* ignore */
+  }
+  return {};
+}
+
+/**
+ * Resolves config in precedence order: this project's global entry → the shared global
+ * default → a committed in-repo override (non-secret prefs) → AETHER_API_KEY env. The
+ * secret lives in the global file or the env, never in the repo.
+ */
+export async function loadConfig(rootDir: string): Promise<AetherConfig | null> {
+  const globalFile = await readGlobalFile();
+  const base = globalFile.projects?.[projectId(rootDir)] ?? globalFile.default ?? null;
+
+  let override: Partial<AetherConfig> | null = null;
+  for (const path of projectConfigPaths(rootDir)) {
+    override = await readJsonConfig(path);
+    if (override) break;
+  }
+
+  const merged: Partial<AetherConfig> = { ...(base ?? {}), ...(override ?? {}) };
+  if (process.env.AETHER_API_KEY) merged.apiKey = process.env.AETHER_API_KEY;
+
+  return Object.keys(merged).length > 0 ? (merged as AetherConfig) : null;
+}
+
+/**
+ * Saves config for THIS project into the global file. The first config also becomes the
+ * shared `default` that not-yet-configured projects inherit; later per-project saves only
+ * update their own entry, so configuring one project never disturbs another.
+ */
 export async function saveConfig(rootDir: string, config: AetherConfig): Promise<void> {
-  await mkdir(getSettingsDir(rootDir), { recursive: true });
-  await writeFile(getConfigPath(rootDir), JSON.stringify(config, null, 2), "utf-8");
-  await ensureAetherScaffold(rootDir);
+  const globalFile = await readGlobalFile();
+  const next: GlobalConfigFile = {
+    default: globalFile.default ?? config,
+    projects: { ...(globalFile.projects ?? {}), [projectId(rootDir)]: config },
+  };
+
+  await mkdir(getGlobalDir(), { recursive: true });
+  await writeFile(getGlobalConfigPath(), JSON.stringify(next, null, 2), "utf-8");
 }
 
 export function validateConfig(config: AetherConfig): string[] {

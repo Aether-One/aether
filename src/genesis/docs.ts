@@ -21,15 +21,16 @@ import {
   DIAGRAMS_PROMPT,
   AI_CONTEXT_PROMPT,
   GLOSSARY_PROMPT,
+  DOC_UPDATE_INSTRUCTIONS,
+  SECTION_PATCH_INSTRUCTIONS,
   buildCustomDocPrompt,
 } from "../prompts/index.js";
 
-/**
- * Sections used to group docs in the generated index (docs/README.md).
- * Order here is the order they appear in the index — humans (Guides) first.
- */
-export type DocSection = "Guides" | "Architecture" | "Reference" | "AI Context" | "Project-specific";
+import type { DocSection, DocDefinition, CustomDocSpec, DocIndexEntry } from "./types.js";
 
+export type { DocSection, DocDefinition, CustomDocSpec, DocIndexEntry } from "./types.js";
+
+/** Order the sections appear in the generated index (docs/README.md) — humans (Guides) first. */
 export const SECTION_ORDER: DocSection[] = [
   "Guides",
   "Architecture",
@@ -38,39 +39,74 @@ export const SECTION_ORDER: DocSection[] = [
   "Project-specific",
 ];
 
-export interface DocDefinition {
-  id: string;
-  outputPath: string;
-  label: string;
-  /** Human-friendly title used in the docs index. */
-  title: string;
-  /** Which group this doc belongs to in the index. */
-  section: DocSection;
-  /** One-line description shown next to the link in the index. */
-  summary: string;
-  buildPrompt: (context: string) => string;
-}
-
-/** A doc proposed by the planner LLM that doesn't fit the fixed catalog below. */
-export interface CustomDocSpec {
-  /** Sanitized, relative to docs/ — e.g. "deployment/build-pipeline.md". */
-  path: string;
-  title: string;
-  focus: string;
-}
-
 function withBase(context: string, specificPrompt: string): string {
   return `${BASE_PROMPT}\n\n${context}\n\n${specificPrompt}\n\n${PROMPT_SUFFIX}`;
 }
 
-/**
- * Human guides use a different contract than machine docs: same anti-hallucination floor,
- * but the writing rules are inverted toward narrative and the "why" (see HUMAN_BASE_PROMPT).
- * Routing the guides through this instead of withBase() is what keeps them from reading
- * like the path-driven AI docs.
- */
+// Human guides invert the writing rules toward narrative and the "why" (HUMAN_BASE_PROMPT),
+// keeping the same anti-hallucination floor as the machine docs.
 function withHumanBase(context: string, specificPrompt: string): string {
   return `${HUMAN_BASE_PROMPT}\n\n${context}\n\n${specificPrompt}\n\n${HUMAN_PROMPT_SUFFIX}`;
+}
+
+/** Full-document prompt — used by genesis and for brand-new docs in sync. */
+export function buildDocPrompt(doc: DocDefinition, context: string): string {
+  return doc.human ? withHumanBase(context, doc.prompt) : withBase(context, doc.prompt);
+}
+
+/**
+ * Update prompt — used by sync to REFRESH an existing doc. Feeds the current doc
+ * and the change summary so the model patches only what changed instead of rewriting.
+ */
+export function buildDocUpdatePrompt(
+  doc: DocDefinition,
+  context: string,
+  existingDoc: string,
+  changes: string,
+): string {
+  const base = doc.human ? HUMAN_BASE_PROMPT : BASE_PROMPT;
+  // Intentionally NOT the doc's "Generate a ... document" contract — the current
+  // document below is already the structure to follow. Including the from-scratch
+  // contract here fights the update instructions and triggers full rewrites.
+  return [
+    base,
+    context,
+    `You are maintaining the document "${doc.title}" (${doc.summary}). The current version below is the source of truth for its structure and wording.`,
+    "--- BEGIN CURRENT DOCUMENT ---",
+    existingDoc,
+    "--- END CURRENT DOCUMENT ---",
+    "## What changed in the project since this document was written",
+    changes,
+    DOC_UPDATE_INSTRUCTIONS,
+  ].join("\n\n");
+}
+
+/**
+ * Section-patch prompt — asks the model to return ONLY the sections affected by the
+ * change (as heading→content), so the code can replace just those and keep the rest
+ * of the document byte-for-byte. `headings` are the existing section titles.
+ */
+export function buildSectionPatchPrompt(
+  doc: DocDefinition,
+  context: string,
+  existingDoc: string,
+  changes: string,
+  headings: string[],
+): string {
+  const base = doc.human ? HUMAN_BASE_PROMPT : BASE_PROMPT;
+  return [
+    base,
+    context,
+    `You are updating the document "${doc.title}" (${doc.summary}). Only the parts affected by the change below may change.`,
+    "Current sections (by heading):",
+    headings.map((h) => `- ${h}`).join("\n"),
+    "--- BEGIN CURRENT DOCUMENT ---",
+    existingDoc,
+    "--- END CURRENT DOCUMENT ---",
+    "## What changed in the project since this document was written",
+    changes,
+    SECTION_PATCH_INSTRUCTIONS,
+  ].join("\n\n");
 }
 
 // --- Guides (human-facing) ---
@@ -82,7 +118,8 @@ const GETTING_STARTED: DocDefinition = {
   title: "Getting Started",
   section: "Guides",
   summary: "Install, configure, and run the project locally.",
-  buildPrompt: (context) => withHumanBase(context, GETTING_STARTED_PROMPT),
+  prompt: GETTING_STARTED_PROMPT,
+  human: true,
 };
 
 const ONBOARDING: DocDefinition = {
@@ -92,7 +129,8 @@ const ONBOARDING: DocDefinition = {
   title: "Onboarding",
   section: "Guides",
   summary: "The mental model, the why, and how to make your first change.",
-  buildPrompt: (context) => withHumanBase(context, ONBOARDING_PROMPT),
+  prompt: ONBOARDING_PROMPT,
+  human: true,
 };
 
 const CONTRIBUTING: DocDefinition = {
@@ -102,7 +140,8 @@ const CONTRIBUTING: DocDefinition = {
   title: "Contributing",
   section: "Guides",
   summary: "Conventions, quality gates, and how to submit a change.",
-  buildPrompt: (context) => withHumanBase(context, CONTRIBUTING_PROMPT),
+  prompt: CONTRIBUTING_PROMPT,
+  human: true,
 };
 
 // --- Architecture ---
@@ -114,7 +153,7 @@ const SYSTEM_OVERVIEW: DocDefinition = {
   title: "System Overview",
   section: "Architecture",
   summary: "High-level architecture and how the system fits together.",
-  buildPrompt: (context) => withBase(context, SYSTEM_OVERVIEW_PROMPT),
+  prompt: SYSTEM_OVERVIEW_PROMPT,
 };
 
 const FOLDER_STRUCTURE: DocDefinition = {
@@ -124,7 +163,7 @@ const FOLDER_STRUCTURE: DocDefinition = {
   title: "Folder Structure",
   section: "Architecture",
   summary: "Directory layout and where things live.",
-  buildPrompt: (context) => withBase(context, FOLDER_STRUCTURE_PROMPT),
+  prompt: FOLDER_STRUCTURE_PROMPT,
 };
 
 const TECH_STACK: DocDefinition = {
@@ -134,7 +173,7 @@ const TECH_STACK: DocDefinition = {
   title: "Tech Stack",
   section: "Architecture",
   summary: "Languages, frameworks, and key dependencies.",
-  buildPrompt: (context) => withBase(context, TECH_STACK_PROMPT),
+  prompt: TECH_STACK_PROMPT,
 };
 
 const MODULES: DocDefinition = {
@@ -144,7 +183,7 @@ const MODULES: DocDefinition = {
   title: "Modules Overview",
   section: "Architecture",
   summary: "Per-module breakdown of responsibilities and exports.",
-  buildPrompt: (context) => withBase(context, MODULES_PROMPT),
+  prompt: MODULES_PROMPT,
 };
 
 const DIAGRAMS: DocDefinition = {
@@ -154,7 +193,7 @@ const DIAGRAMS: DocDefinition = {
   title: "Diagrams",
   section: "Architecture",
   summary: "Visual diagrams of the system and its relationships.",
-  buildPrompt: (context) => withBase(context, DIAGRAMS_PROMPT),
+  prompt: DIAGRAMS_PROMPT,
 };
 
 // --- Reference ---
@@ -166,7 +205,7 @@ const CODING_STANDARDS: DocDefinition = {
   title: "Coding Standards",
   section: "Reference",
   summary: "Code patterns and conventions used across the project.",
-  buildPrompt: (context) => withBase(context, CODING_STANDARDS_PROMPT),
+  prompt: CODING_STANDARDS_PROMPT,
 };
 
 const API_DOCS: DocDefinition = {
@@ -176,7 +215,7 @@ const API_DOCS: DocDefinition = {
   title: "API Reference",
   section: "Reference",
   summary: "API surface — endpoints or CLI commands.",
-  buildPrompt: (context) => withBase(context, API_PROMPT),
+  prompt: API_PROMPT,
 };
 
 const BUSINESS_RULES: DocDefinition = {
@@ -186,7 +225,7 @@ const BUSINESS_RULES: DocDefinition = {
   title: "Business Rules",
   section: "Reference",
   summary: "Business rules and domain logic.",
-  buildPrompt: (context) => withBase(context, BUSINESS_RULES_PROMPT),
+  prompt: BUSINESS_RULES_PROMPT,
 };
 
 const GLOSSARY: DocDefinition = {
@@ -196,7 +235,7 @@ const GLOSSARY: DocDefinition = {
   title: "Glossary",
   section: "Reference",
   summary: "Domain-specific terms and definitions.",
-  buildPrompt: (context) => withBase(context, GLOSSARY_PROMPT),
+  prompt: GLOSSARY_PROMPT,
 };
 
 // --- AI Context ---
@@ -208,13 +247,12 @@ const AI_CONTEXT: DocDefinition = {
   title: "AI Context",
   section: "AI Context",
   summary: "System prompt for AI assistants working on this project.",
-  buildPrompt: (context) => withBase(context, AI_CONTEXT_PROMPT),
+  prompt: AI_CONTEXT_PROMPT,
 };
 
 /**
  * All docs available for generation. The planner decides which ones are relevant.
- * Order here drives generation order and the order within each index section —
- * human Guides first, then Architecture, Reference, and the AI context anchor.
+ * Order here drives generation order and the order within each index section.
  */
 export const DOC_DEFINITIONS: DocDefinition[] = [
   GETTING_STARTED,
@@ -232,10 +270,7 @@ export const DOC_DEFINITIONS: DocDefinition[] = [
   GLOSSARY,
 ];
 
-/**
- * Turns a planner-proposed custom doc into a DocDefinition, so genesis can generate
- * it through the same pipeline as the fixed catalog above.
- */
+/** Turns a planner-proposed custom doc into a DocDefinition. */
 export function buildCustomDocDefinition(spec: CustomDocSpec): DocDefinition {
   return {
     id: `custom:${spec.path}`,
@@ -244,17 +279,14 @@ export function buildCustomDocDefinition(spec: CustomDocSpec): DocDefinition {
     title: spec.title,
     section: "Project-specific",
     summary: spec.focus || "Project-specific documentation.",
-    buildPrompt: (context) => withBase(context, buildCustomDocPrompt(spec.title, spec.focus)),
+    prompt: buildCustomDocPrompt(spec.title, spec.focus),
   };
 }
 
 /**
  * Builds the docs landing page (docs/README.md) deterministically — no LLM call.
- * Groups the generated docs by section (Guides first) and links each one relative
- * to docs/, so the knowledge base reads as a structured site instead of loose files.
+ * Groups docs by section (Guides first) and links each relative to docs/.
  */
-export type DocIndexEntry = Pick<DocDefinition, "outputPath" | "title" | "section" | "summary">;
-
 export function buildDocsIndex(projectName: string, docs: DocIndexEntry[]): string {
   const lines: string[] = [];
 
@@ -273,8 +305,6 @@ export function buildDocsIndex(projectName: string, docs: DocIndexEntry[]): stri
     lines.push(`## ${section}`);
     lines.push("");
     for (const doc of inSection) {
-      // outputPath is relative to .aether/; the index lives at .aether/docs/README.md,
-      // so links are relative to docs/.
       const href = doc.outputPath.replace(/^docs\//, "");
       lines.push(`- [${doc.title}](${href}) — ${doc.summary}`);
     }
