@@ -30,5 +30,5 @@ coverage/
 .tmp/
 .cache/
 
-# Aether local config (contains API keys)
-.aether/config.json
+# Claude
+.claude/

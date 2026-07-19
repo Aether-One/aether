@@ -4,9 +4,7 @@ import { chatWithRetry, createRetryLogger, type RetryOptions } from "../provider
 import { DOC_DEFINITIONS, buildCustomDocDefinition, type DocDefinition, type CustomDocSpec } from "./docs.js";
 import { BASE_PROMPT, PROMPT_SUFFIX, PLANNER_PROMPT } from "../prompts/index.js";
 
-const DIM = chalk.dim;
-const ACCENT = chalk.hex("#895bf4");
-const WARN = chalk.yellow;
+import { ACCENT, DIM, WARN } from "../ui/theme.js";
 
 /**
  * Always generated regardless of what the planner returns — keeps every project anchored.
@@ -120,12 +118,13 @@ function showPlannerThought(catalogIds: string[], customLabels: string[], note?:
   process.stdout.write("\n");
 }
 
-interface ParsedPlan {
+export interface ParsedPlan {
   catalogIds: string[];
   customDocs: CustomDocSpec[];
 }
 
-function parsePlan(content: string): ParsedPlan {
+/** Parses a planner/sync model response into catalog IDs + custom doc specs. */
+export function parsePlan(content: string): ParsedPlan {
   const raw = extractJsonArray(content);
   if (!raw) return { catalogIds: [], customDocs: [] };
 
@@ -155,7 +154,7 @@ function parsePlan(content: string): ParsedPlan {
   return { catalogIds, customDocs };
 }
 
-function extractJsonArray(content: string): unknown[] | null {
+export function extractJsonArray(content: string): unknown[] | null {
   // Strip reasoning blocks some models emit before the answer, and any markdown
   // code-fence markers, so the real JSON is left standing on its own.
   const text = content

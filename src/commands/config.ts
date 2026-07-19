@@ -9,9 +9,7 @@ import {
   type AetherConfig,
 } from "../config/index.js";
 
-const ACCENT = chalk.hex("#895bf4");
-const DIM = chalk.dim;
-const SUCCESS = chalk.green;
+import { ACCENT, DIM, SUCCESS } from "../ui/theme.js";
 
 export function registerConfigCommand(): void {
   registry.register({
@@ -118,7 +116,7 @@ async function quickSetup(provider: AetherConfig["provider"]): Promise<void> {
 
   await saveConfig(process.cwd(), config);
 
-  process.stdout.write(`\n${SUCCESS("  ✓")} Config saved for ${ACCENT(provider)}\n\n`);
+  process.stdout.write(`\n${SUCCESS("  ✓")} Config saved for ${ACCENT(provider)} ${DIM("(~/.aether/config.json)")}\n\n`);
   process.stdout.write(`     ${DIM("Provider:")}  ${config.provider}\n`);
   process.stdout.write(`     ${DIM("Model:")}     ${config.model}\n`);
   process.stdout.write(`     ${DIM("Base URL:")}  ${config.baseUrl}\n`);

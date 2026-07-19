@@ -2,9 +2,7 @@ import * as readline from "node:readline";
 import chalk from "chalk";
 import { registry, type Command } from "../commands/registry.js";
 
-const ACCENT = chalk.hex("#895bf4");
-const ACCENT_BOLD = chalk.bold.hex("#895bf4");
-const DIM = chalk.dim;
+import { ACCENT, ACCENT_BOLD, DIM } from "./theme.js";
 
 const TIPS = [
   `${DIM("tip:")} use ${ACCENT("/genesis")} to analyze your project`,

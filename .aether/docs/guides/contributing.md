@@ -1,42 +1,113 @@
 # Contributing to Aether
 
-## Development setup
+Thank you for considering a contribution. This guide reflects what actually exists in the repository today — no invented processes, no aspirational tooling.
 
-See `getting-started.md` for install, configure, and run steps. This project requires Node.js 20+ (per `engines` in `package.json`) and uses `npm` (evidenced by `package-lock.json` and `npm` scripts in `package.json`).
+---
 
-## Project conventions
+## Development Setup
 
-- Written in TypeScript (verified by `tsconfig.json` and `.ts` files under `src/`).
-- ESM modules: `"type": "module"` in `package.json`; imports use `.js` extension (e.g. `src/cli/index.ts` imports `../ui/animation.js`).
-- TypeScript strict mode enabled (`"strict": true` in `tsconfig.json`).
-- Module resolution is `NodeNext` (`tsconfig.json`).
-- Single production dependency: `chalk` (`package.json` `dependencies`).
-- Dev tooling: `typescript`, `tsx`, `esbuild`, `postject`, `@types/node` (`package.json` `devDependencies`).
-- No linter or formatter is configured in `package.json` scripts or any config file present in the context.
+**Requirements:** Node.js 20+ (enforced in `package.json` engines).
 
-## Quality gates before a PR
+```bash
+# Clone your fork
+git clone https://github.com/YOUR_USERNAME/aether.git
+cd aether
 
-From `package.json` `scripts`:
-- Build: `npm run build` (runs `tsc`)
-- Type check: `npm run typecheck` (runs `tsc --noEmit`)
-- Dev mode: `npm run dev` (runs `tsx src/cli/index.ts`)
+# Install dependencies
+npm install
 
-There is **no test suite configured** — `package.json` defines no `test` script, and no test files or test framework appear in the provided context.
+# Run in development mode (uses tsx for direct TS execution)
+npm run dev
 
-## Commit & branch conventions
+# Build (compiles to dist/ via tsc)
+npm run build
 
-The repo contains a `CONTRIBUTING.md` with explicit conventions:
-- Branch naming prefixes: `feat/`, `fix/`, `docs/`, `refactor/`, `test/` (table in `CONTRIBUTING.md`).
-- Commit messages: descriptive, e.g. `feat: add dependency detection for Python projects` (examples in `CONTRIBUTING.md`).
+# Type-check without emitting
+npm run typecheck
+```
 
-## Submitting changes
+The `dev` script runs `tsx src/cli/index.ts` — useful for rapid iteration. The `build:sea` script produces a single executable via `scripts/build-sea.mjs` (esbuild + postject), but isn't required for typical development.
 
-`CONTRIBUTING.md` describes the flow:
+---
+
+## Project Conventions
+
+**Language & Style**
+- TypeScript, strict mode (`tsconfig.json`: `strict: true`, `noImplicitAny: true`).
+- ESM only (`"type": "module"` in `package.json`).
+- Keep functions small and focused; avoid `any`.
+- Follow the existing code style — the codebase is small enough to learn by reading.
+
+**Formatting & Linting**
+- **No formatter configured** (no Prettier, no `format` script).
+- **No linter configured** (no ESLint, no `lint` script).
+- Consistency is maintained by convention and code review.
+
+**Naming & Structure**
+- Branch prefixes: `feat/`, `fix/`, `docs/`, `refactor/`, `test/` (from `CONTRIBUTING.md`).
+- Source lives in `src/` with feature-based subdirectories (`cli/`, `commands/`, `genesis/`, `providers/`, `prompts/`, `ui/`, `config/`, `util/`).
+- Barrel exports via `index.ts` files are used throughout.
+
+---
+
+## Quality Gates Before a PR
+
+Run these locally — they are the only automated checks in the repository:
+
+| Command | Purpose |
+|---------|---------|
+| `npm run build` | Compiles TypeScript; catches type errors and emit issues |
+| `npm run typecheck` | Fast type-only check (`tsc --noEmit`) |
+
+**There is no test suite.** No `test` script exists in `package.json`, no test files in the source tree, and no CI pipeline runs tests. If you add tests, you'll also need to add the tooling and scripts to run them.
+
+**There is no lint step.** Code style is enforced manually in review.
+
+---
+
+## Commit & Branch Conventions
+
+The project documents these conventions in `CONTRIBUTING.md`:
+
+**Branches**
+```
+feat/your-feature     # new features
+fix/your-fix          # bug fixes
+docs/your-update      # documentation only
+refactor/your-change  # code changes that don't fix bugs or add features
+test/your-tests       # adding or updating tests
+```
+
+**Commit Messages**
+Use clear, descriptive messages with a type prefix:
+```
+feat: add dependency detection for Python projects
+fix: handle empty directories in scanner
+docs: update roadmap with new commands
+refactor: extract technology detection into separate module
+```
+
+No automated commit linting (no `commitlint`, no Husky hooks).
+
+---
+
+## Submitting Changes
+
 1. Fork the repository
-2. Create a branch from `main` using the prefix rules above
-3. Make changes
-4. Run `npm run build` and `npm run typecheck`
-5. Commit with a clear message
+2. Create a branch from `main` using the prefixes above
+3. Make your changes
+4. Run `npm run build` and `npm run typecheck` — both must pass
+5. Commit with a clear message (see conventions above)
 6. Push and open a Pull Request
 
-No CI workflow, PR template, or `.github/` directory is present in the provided context.
+**Review Process**
+- No documented PR template (`.github/pull_request_template.md` does not exist).
+- No CI workflow (`.github/workflows/` does not exist).
+- Reviews are manual; maintainers will run the build and typecheck themselves.
+- Be responsive to feedback; keep PRs focused.
+
+---
+
+## Questions?
+
+Open an issue or start a discussion. No question is too small.

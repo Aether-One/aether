@@ -2,107 +2,161 @@
 
 ## Overview
 
-The project is a TypeScript CLI tool (Node.js 20+, ESM) named `aether`. Its layout separates the interactive CLI entry point, command implementations, configuration loading, AI provider abstraction, genesis (documentation generation) pipeline, prompt templates, and terminal UI into distinct `src/` subdirectories. Build and project metadata live at the repo root.
+Aether follows a modular, domain-driven architecture where each top-level directory under `src/` represents a distinct capability. The project is organized around the CLI command lifecycle: configuration → scanning → analysis → generation → output. Shared utilities and cross-cutting concerns (UI, providers, config) live in dedicated directories, while command-specific logic resides in `commands/` and the core analysis pipeline lives in `genesis/`.
 
 ## Root Structure
 
 ```
 aether/
-├── scripts/
-│   └── build-sea.mjs
-├── src/
-│   ├── cli/
-│   ├── commands/
-│   ├── config/
-│   ├── genesis/
-│   ├── prompts/
-│   ├── providers/
-│   └── ui/
-├── CONTEXT.md
-├── CONTRIBUTING.md
-├── LICENSE
-├── package-lock.json
-├── package.json
-├── README.md
-├── sea-config.json
-└── tsconfig.json
+├── scripts/              # Build-time scripts (Single Executable Application)
+├── src/                  # Main source code
+├── CONTRIBUTING.md       # Contribution guidelines
+├── LICENSE               # MIT license
+├── package-lock.json     # Locked dependency tree
+├── package.json          # Project manifest, scripts, dependencies
+├── README.md             # Project documentation
+├── sea-config.json       # SEA (Single Executable Application) config
+└── tsconfig.json         # TypeScript configuration
 ```
 
-- `scripts/` — Contains `build-sea.mjs` (referenced in `package.json` `build:sea` script: `node scripts/build-sea.mjs`).
-- `src/` — All TypeScript source code, organized by responsibility (see below).
-- `CONTEXT.md` — Author-written project context / vision document.
-- `CONTRIBUTING.md` — Author-written contribution guide.
-- `LICENSE` — Project license file (MIT per `package.json`).
-- `package-lock.json` — Lockfile for dependencies.
-- `package.json` — Project manifest (name `aether`, `type: module`, scripts, deps).
-- `README.md` — Project readme.
-- `sea-config.json` — Configuration file for SEA build (referenced by `build:sea` script and `scripts/build-sea.mjs` presence).
-- `tsconfig.json` — TypeScript compiler configuration.
+| Directory/File | Purpose |
+|----------------|---------|
+| `scripts/` | Contains `build-sea.mjs` for creating a single executable binary |
+| `src/` | All TypeScript source code |
+| `CONTRIBUTING.md` | Contribution guidelines and project structure overview |
+| `package.json` | Defines entry point (`dist/cli/index.js`), scripts, and dependencies |
+| `tsconfig.json` | Strict TypeScript config targeting ES2022/NodeNext |
+| `sea-config.json` | Configuration for Single Executable Application build |
 
 ## Source Structure
 
 ```
 src/
-├── cli/
-│   └── index.ts              → Entry point, registers commands, starts prompt
-├── commands/
-│   ├── builtins.ts           → /genesis, /sync, /exit, /clear + formatError()
-│   ├── config.ts             → /config (setup of provider)
-│   ├── help.ts               → /help (lists commands)
-│   └── registry.ts           → CommandRegistry (register/get/execute)
-├── config/
-│   └── index.ts              → AetherConfig type, load/save/validate config
-├── genesis/
-│   ├── context.ts            → scanContext() + buildPrompt()
-│   ├── docs.ts               → DOC_DEFINITIONS + buildCustomDocDefinition() + buildDocsIndex()
-│   └── planner.ts            → planDocs() (AI decides docs to generate)
-├── prompts/
-│   ├── ai-context.ts         → AI_CONTEXT_PROMPT
-│   ├── api.ts                → API_PROMPT
-│   ├── base.ts               → BASE_PROMPT + PROMPT_SUFFIX
-│   ├── business.ts           → BUSINESS_RULES_PROMPT
-│   ├── coding-standards.ts   → CODING_STANDARDS_PROMPT
-│   ├── contributing.ts       → CONTRIBUTING_PROMPT
-│   ├── custom-doc.ts         → buildCustomDocPrompt()
-│   ├── diagrams.ts           → DIAGRAMS_PROMPT
-│   ├── folder-structure.ts   → FOLDER_STRUCTURE_PROMPT
-│   ├── getting-started.ts    → GETTING_STARTED_PROMPT
-│   ├── glossary.ts           → GLOSSARY_PROMPT
-│   ├── index.ts              → re-exports all prompts
-│   ├── modules.ts            → MODULES_PROMPT
-│   ├── onboarding.ts         → ONBOARDING_PROMPT
-│   ├── planner.ts            → PLANNER_PROMPT
-│   ├── system-overview.ts    → SYSTEM_OVERVIEW_PROMPT
-│   └── tech-stack.ts         → TECH_STACK_PROMPT
-├── providers/
-│   ├── factory.ts            → createProvider(config)
-│   ├── index.ts              → re-exports
-│   ├── openai-compatible.ts  → OpenAICompatibleProvider
-│   ├── retry.ts              → chatWithRetry + createRetryLogger()
-│   └── types.ts              → LLMProvider interface + request/response types
-└── ui/
-    ├── animation.ts          → playStartupAnimation() + printBanner()
-    ├── prompt.ts             → startChat() (readline interactive prompt)
-    └── steps.ts              → StepRunner (visual step states)
+├── cli/                    # CLI entry point and argument parsing
+│   └── index.ts            # main() — version, command registration, startup animation, REPL
+├── commands/               # Slash-command implementations
+│   ├── builtins.ts         # /genesis, /sync, /exit, /clear
+│   ├── clean.ts            # /clean — manage global cache/config
+│   ├── config.ts           # /config — provider setup and key management
+│   ├── help.ts             # /help — command reference
+│   └── registry.ts         # CommandRegistry class and Command interface
+├── config/                 # Configuration loading, validation, scaffolding
+│   ├── index.ts            # loadConfig, saveConfig, getDefaultConfig, validation
+│   ├── readme.ts           # AETHER_README template for .aether/README.md
+│   ├── scaffold.ts         # ensureProjectReadme() — writes .aether/README.md
+│   └── types.ts            # AetherConfig interface (provider, model, baseUrl, apiKey)
+├── genesis/                # Core analysis and documentation pipeline
+│   ├── constants.ts        # Limits (file size, char budget, concurrency) with env overrides
+│   ├── context.ts          # scanContext() — reads project, builds ProjectContext
+│   ├── digest.ts           # buildPlannerDigest() — compact project map for planner LLM
+│   ├── distill.ts          # distillFilesIncremental() — LLM-based source fact extraction
+│   ├── docs.ts             # DocDefinition catalog, prompt builders, index generator
+│   ├── fingerprint.ts      # buildFingerprint(), getGitInfo() — change detection
+│   ├── planner.ts          # planDocs() — LLM decides which docs to generate
+│   ├── scope.ts            # buildSharedProjectContext() — shared context with distillation cache
+│   ├── sync.ts             # planSync(), refreshDoc(), writeSnapshot() — incremental updates
+│   └── types.ts            # All genesis types: ProjectContext, DocDefinition, Snapshot, etc.
+├── prompts/                # LLM prompt templates
+│   ├── base.ts             # BASE_PROMPT, PROMPT_SUFFIX, HUMAN_BASE_PROMPT, HUMAN_PROMPT_SUFFIX
+│   ├── index.ts            # Re-exports all prompt constants
+│   ├── docs/               # Per-document prompts (13 files)
+│   │   ├── ai-context.ts
+│   │   ├── api.ts
+│   │   ├── business.ts
+│   │   ├── coding-standards.ts
+│   │   ├── contributing.ts
+│   │   ├── custom-doc.ts
+│   │   ├── diagrams.ts
+│   │   ├── folder-structure.ts
+│   │   ├── getting-started.ts
+│   │   ├── glossary.ts
+│   │   ├── modules.ts
+│   │   ├── onboarding.ts
+│   │   ├── system-overview.ts
+│   │   └── tech-stack.ts
+│   └── pipeline/           # Pipeline-stage prompts
+│       ├── planner.ts      # PLANNER_PROMPT
+│       └── sync.ts         # SYNC_PLANNER_PROMPT, DOC_UPDATE_INSTRUCTIONS, SECTION_PATCH_INSTRUCTIONS
+├── providers/              # LLM provider abstraction
+│   ├── factory.ts          # createProvider() — returns OpenAICompatibleProvider
+│   ├── index.ts            # Re-exports types, OpenAICompatibleProvider, createProvider
+│   ├── openai-compatible.ts # OpenAICompatibleProvider class (chat, chatStream, ping)
+│   ├── retry.ts            # chatWithRetry(), rate-limit handling, retry logging
+│   └── types.ts            # LLMProvider interface, ChatMessage, ChatRequest, ChatResponse
+├── ui/                     # Terminal UI components
+│   ├── animation.ts        # playStartupAnimation(), printBanner()
+│   ├── prompt.ts           # startChat() — REPL with tab completion and dropdown
+│   ├── steps.ts            # StepRunner (multi-step progress), LineSpinner
+│   └── theme.ts            # Color constants (ACCENT, DIM, SUCCESS, WARN, ERROR)
+└── util/                   # Shared utilities
+    └── env.ts              # envInt() — safe integer env var parsing with fallback
 ```
 
 ## Naming Conventions
 
-- Source files use lowercase with hyphens for multi-word names (e.g. `build-sea.mjs`, `openai-compatible.ts`, `folder-structure.ts`).
-- Command files are plural and lowercase (`builtins.ts`, `config.ts`, `help.ts`, `registry.ts`).
-- Prompt template files export a constant in `SCREAMING_SNAKE_CASE` (e.g. `FOLDER_STRUCTURE_PROMPT` in `src/prompts/folder-structure.ts`) or a function (`buildCustomDocPrompt` in `src/prompts/custom-doc.ts`).
-- ESM imports use explicit `.js` extension for local TypeScript files (e.g. `../ui/animation.js` in `src/cli/index.ts`).
-- Top-level directories under `src/` are lowercase and named by responsibility (`cli`, `commands`, `config`, `genesis`, `prompts`, `providers`, `ui`).
+| Pattern | Example | Scope |
+|---------|---------|-------|
+| **kebab-case directories** | `genesis/`, `prompts/docs/` | All directories |
+| **kebab-case files** | `build-sea.mjs`, `openai-compatible.ts` | All files |
+| **PascalCase classes** | `CommandRegistry`, `OpenAICompatibleProvider`, `StepRunner` | Classes |
+| **camelCase functions** | `scanContext`, `buildPlannerDigest`, `createProvider` | Functions, variables |
+| **UPPER_SNAKE_CASE constants** | `MAX_FILE_SIZE`, `DOC_CONTEXT_BUDGET`, `SPINNER_FRAMES` | Module-level constants |
+| **Interface suffix** | `AetherConfig`, `LLMProvider`, `Command`, `ProjectContext` | TypeScript interfaces |
+| **Type suffix** | `PlanDocsOptions`, `ParsedPlan`, `RetryOptions` | Type aliases |
+| **Command prefix** | `/genesis`, `/sync`, `/config`, `/clean`, `/help`, `/exit`, `/clear` | CLI slash commands |
 
 ## Key Files
 
-- `src/cli/index.ts` — Entry point. Imports `playStartupAnimation`/`printBanner` from `../ui/animation.js`, `startChat` from `../ui/prompt.js`, and command registrars from `../commands/`. Calls `registerHelpCommand()`, `registerBuiltinCommands()`, `registerConfigCommand()`, then starts animation or banner and `startChat()`.
-- `package.json` — Defines `bin` as `aether` → `./dist/cli/index.js`, scripts (`build`: `tsc`, `build:sea`: `node scripts/build-sea.mjs`, `dev`: `tsx src/cli/index.ts`, `start`: `node dist/cli/index.js`, `typecheck`: `tsc --noEmit`), dependency `chalk`, and dev deps `esbuild`, `postject`, `tsx`, `typescript`, `@types/node`.
-- `tsconfig.json` — Sets `module: NodeNext`, `moduleResolution: NodeNext`, `strict: true`, `outDir: ./dist`, `rootDir: ./src`.
-- `src/commands/registry.ts` — Defines `Command` interface and `CommandRegistry` class with `register`, `get`, `getAll`, `has`, `execute` (case-insensitive name match, lowercase conversion). Exports `registry` instance.
-- `src/config/index.ts` — Defines `AetherConfig` interface, `DEFAULT_CONFIGS`, `detectProviderFromBaseUrl()`, `loadConfig()`, `saveConfig()`, `validateConfig()`.
-- `src/providers/openai-compatible.ts` — `OpenAICompatibleProvider` class implementing `LLMProvider` with `chat`, `chatStream`, `ping` using `fetch` to `${baseUrl}/chat/completions` and `${baseUrl}/models`.
-- `src/genesis/context.ts` — `scanContext()` walks project (respecting `IGNORED_DIRS`, `MAX_FILE_SIZE`, `MAX_TOTAL_CHARS`) and `buildPrompt()` assembles the project context string.
-- `src/genesis/planner.ts` — `planDocs()` calls LLM with `PLANNER_PROMPT` and returns `DocDefinition[]` including core IDs and custom docs.
-- `src/genesis/docs.ts` — `DOC_DEFINITIONS` array, `buildCustomDocDefinition()`, `buildDocsIndex()` for `docs/README.md`.
-- `sea-config.json` — Present at root; consumed by `scripts/build-sea.mjs` (per `build:sea` script), exact contents not provided in context.
+### Entry Points
+| File | Role |
+|------|------|
+| `src/cli/index.ts` | CLI entry point — `main()` registers commands, detects TTY, runs animation, starts REPL |
+| `package.json` | Defines `bin.aether = ./dist/cli/index.js`, scripts (`build`, `dev`, `build:sea`, `typecheck`) |
+
+### Configuration
+| File | Role |
+|------|------|
+| `src/config/index.ts` | Config loading/saving/validation, provider defaults, global/project config merge |
+| `src/config/types.ts` | `AetherConfig` interface — provider, model, baseUrl, apiKey, timeout |
+| `src/config/scaffold.ts` | `ensureProjectReadme()` — writes `.aether/README.md` on first genesis |
+| `sea-config.json` | SEA build configuration for single executable output |
+
+### Core Pipeline (genesis)
+| File | Role |
+|------|------|
+| `src/genesis/context.ts` | `scanContext()` — reads project files, builds `ProjectContext` |
+| `src/genesis/digest.ts` | `buildPlannerDigest()` — deterministic project map for planner LLM |
+| `src/genesis/planner.ts` | `planDocs()` — LLM selects docs to generate from catalog + custom |
+| `src/genesis/distill.ts` | `distillFilesIncremental()` — extracts factual notes from source files via LLM |
+| `src/genesis/scope.ts` | `buildSharedProjectContext()` — builds shared context with distillation cache |
+| `src/genesis/docs.ts` | 13 `DocDefinition` constants, prompt builders, index generator |
+| `src/genesis/sync.ts` | `planSync()`, `refreshDoc()`, `writeSnapshot()` — incremental updates |
+| `src/genesis/fingerprint.ts` | `buildFingerprint()`, `getGitInfo()` — change detection via SHA256 + git |
+| `src/genesis/constants.ts` | All size/concurrency limits with `AETHER_*` env var overrides |
+
+### Providers & Prompts
+| File | Role |
+|------|------|
+| `src/providers/openai-compatible.ts` | `OpenAICompatibleProvider` — implements `LLMProvider` for OpenAI-compatible APIs |
+| `src/providers/factory.ts` | `createProvider()` — instantiates provider based on `config.provider` |
+| `src/providers/retry.ts` | `chatWithRetry()` — exponential backoff, rate-limit (429) handling |
+| `src/prompts/base.ts` | `BASE_PROMPT`, `PROMPT_SUFFIX` — anti-hallucination sandwich for all LLM calls |
+| `src/prompts/docs/*.ts` | 13 document-specific prompt templates |
+| `src/prompts/pipeline/*.ts` | Planner and sync prompt templates |
+
+### UI & Commands
+| File | Role |
+|------|------|
+| `src/ui/prompt.ts` | `startChat()` — REPL with readline, tab completion, live dropdown |
+| `src/ui/steps.ts` | `StepRunner` (multi-step progress), `LineSpinner` (single-line spinner) |
+| `src/ui/animation.ts` | `playStartupAnimation()`, `printBanner()` — startup visuals |
+| `src/ui/theme.ts` | Color constants using `chalk` |
+| `src/commands/builtins.ts` | `/genesis`, `/sync`, `/exit`, `/clear` implementations |
+| `src/commands/config.ts` | `/config` — provider setup, key management, validation |
+| `src/commands/clean.ts` | `/clean` — cache/config/project removal |
+| `src/commands/registry.ts` | `CommandRegistry` — command registration and execution |
+
+### Utilities
+| File | Role |
+|------|------|
+| `src/util/env.ts` | `envInt(name, fallback)` — safe integer env var parsing |
