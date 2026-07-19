@@ -275,7 +275,7 @@ export function buildCustomDocDefinition(spec: CustomDocSpec): DocDefinition {
   return {
     id: `custom:${spec.path}`,
     outputPath: `docs/${spec.path}`,
-    label: `docs/${spec.path}`,
+    label: spec.path,
     title: spec.title,
     section: "Project-specific",
     summary: spec.focus || "Project-specific documentation.",

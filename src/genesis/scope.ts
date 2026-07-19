@@ -57,7 +57,7 @@ async function loadDistillCache(rootDir: string): Promise<DistillCache | null> {
   if (!existsSync(path)) return null;
   try {
     const parsed = JSON.parse(await readFile(path, "utf-8"));
-    return parsed?.files && typeof parsed.files === "object" ? (parsed as DistillCache) : null;
+    return parsed?.chunks && typeof parsed.chunks === "object" ? (parsed as DistillCache) : null;
   } catch {
     return null;
   }

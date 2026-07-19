@@ -254,7 +254,12 @@ function sanitizeDocPath(rawPath: string): string | null {
   if (!path.toLowerCase().endsWith(".md")) path += ".md";
 
   const segments = path.split("/").filter((s) => s.length > 0 && s !== ".");
-  if (segments.length === 0 || segments.some((s) => s === "..")) return null;
+  if (segments.some((s) => s === "..")) return null;
+
+  // Paths are always relative to docs/ — drop a redundant leading "docs/" so the
+  // output path never becomes docs/docs/… when a model includes the prefix.
+  if (segments[0]?.toLowerCase() === "docs") segments.shift();
+  if (segments.length === 0) return null;
 
   return segments.join("/");
 }

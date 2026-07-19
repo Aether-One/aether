@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
 import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
 import type { ProjectContext, FileFingerprint, GitInfo } from "./types.js";
+import { hashContent } from "../util/hash.js";
 
 export type { FileFingerprint, GitInfo } from "./types.js";
 
@@ -12,7 +12,7 @@ export function buildFingerprint(context: ProjectContext): Record<string, FileFi
   for (const group of groups) {
     for (const file of group) {
       out[file.path.replace(/\\/g, "/")] = {
-        hash: createHash("sha256").update(file.content).digest("hex"),
+        hash: hashContent(file.content),
         size: Buffer.byteLength(file.content, "utf8"),
       };
     }

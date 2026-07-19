@@ -1,85 +1,107 @@
 # Contributing to Aether
 
-Thank you for considering a contribution. This guide reflects what actually exists in the repository today — no invented processes, no aspirational tooling.
+This guide reflects how the project actually works today, based on the codebase and configuration you'll find in the repository.
 
 ---
 
 ## Development Setup
-
-**Requirements:** Node.js 20+ (enforced in `package.json` engines).
 
 ```bash
 # Clone your fork
 git clone https://github.com/YOUR_USERNAME/aether.git
 cd aether
 
-# Install dependencies
+# Install dependencies (Node.js 20+ required)
 npm install
 
-# Run in development mode (uses tsx for direct TS execution)
+# Run in development mode (uses tsx for TypeScript execution)
 npm run dev
 
-# Build (compiles to dist/ via tsc)
+# Build the project (TypeScript compilation)
 npm run build
 
-# Type-check without emitting
+# Type-check without emitting files
 npm run typecheck
+
+# Build the Single Executable Application (SEA)
+npm run build:sea
 ```
 
-The `dev` script runs `tsx src/cli/index.ts` — useful for rapid iteration. The `build:sea` script produces a single executable via `scripts/build-sea.mjs` (esbuild + postject), but isn't required for typical development.
+**Requirements:** Node.js ≥ 20.0.0 (enforced in `package.json` engines field).
 
 ---
 
-## Project Conventions
+## Project Structure (Actual)
 
-**Language & Style**
-- TypeScript, strict mode (`tsconfig.json`: `strict: true`, `noImplicitAny: true`).
-- ESM only (`"type": "module"` in `package.json`).
-- Keep functions small and focused; avoid `any`.
-- Follow the existing code style — the codebase is small enough to learn by reading.
+The `CONTRIBUTING.md` file describes an older structure. The actual `src/` layout is:
 
-**Formatting & Linting**
-- **No formatter configured** (no Prettier, no `format` script).
-- **No linter configured** (no ESLint, no `lint` script).
-- Consistency is maintained by convention and code review.
+```
+src/
+├── cli/              # CLI entry point (index.ts)
+├── commands/         # Slash-command implementations (genesis, config, help, clean)
+├── config/           # Configuration loading, scaffolding, types
+├── genesis/          # Core analysis pipeline (scan, distill, plan, docs, sync)
+├── prompts/          # Prompt templates for AI-generated docs
+├── providers/        # LLM provider abstractions (OpenAI-compatible, retry logic)
+├── ui/               # Terminal UI (animation, prompts, steppers, theme)
+└── util/             # Small utilities (env parsing, hashing)
+```
 
-**Naming & Structure**
-- Branch prefixes: `feat/`, `fix/`, `docs/`, `refactor/`, `test/` (from `CONTRIBUTING.md`).
-- Source lives in `src/` with feature-based subdirectories (`cli/`, `commands/`, `genesis/`, `providers/`, `prompts/`, `ui/`, `config/`, `util/`).
-- Barrel exports via `index.ts` files are used throughout.
+Key architectural pieces:
+- **Commands** register via `src/commands/registry.ts` (`CommandRegistry`)
+- **Genesis pipeline** (`genesis/`) runs: scan → context → distill → plan → generate docs
+- **Providers** (`providers/`) wrap OpenAI-compatible APIs with retry logic
+- **Prompts** (`prompts/`) are string templates imported by the genesis pipeline
+- **CLI entry** (`cli/index.ts`) boots animation, registers commands, starts REPL
+
+---
+
+## Coding Conventions
+
+Enforced by the TypeScript configuration (`tsconfig.json`):
+
+- **Strict TypeScript** — `strict: true`, no `any`, explicit types
+- **ES2022 / NodeNext modules** — `import`/`export` syntax, `.js` extensions in imports
+- **Small, focused functions** — prefer pure functions over classes where practical
+- **No `any`** — use `unknown` or proper types
+- **Explicit imports** — `import { foo } from "./foo.js"` (`.js` extension required by `moduleResolution: NodeNext`)
+
+No ESLint, Prettier, or other formatters are configured. Follow the existing code style in the repository.
 
 ---
 
 ## Quality Gates Before a PR
 
-Run these locally — they are the only automated checks in the repository:
+Run these locally before opening a PR:
 
-| Command | Purpose |
-|---------|---------|
-| `npm run build` | Compiles TypeScript; catches type errors and emit issues |
-| `npm run typecheck` | Fast type-only check (`tsc --noEmit`) |
+```bash
+# 1. Type-check (strict, no emit)
+npm run typecheck
 
-**There is no test suite.** No `test` script exists in `package.json`, no test files in the source tree, and no CI pipeline runs tests. If you add tests, you'll also need to add the tooling and scripts to run them.
+# 2. Build (emits to dist/)
+npm run build
 
-**There is no lint step.** Code style is enforced manually in review.
+# 3. Test manually in dev mode
+npm run dev
+```
+
+**There is no test suite configured.** The `package.json` has no `test` script, and no test files exist in the repository. Do not invent a test command — manual verification via `npm run dev` is the current validation path.
 
 ---
 
-## Commit & Branch Conventions
+## Branch & Commit Conventions
 
-The project documents these conventions in `CONTRIBUTING.md`:
+From `CONTRIBUTING.md` (this matches the project's stated convention):
 
-**Branches**
-```
-feat/your-feature     # new features
-fix/your-fix          # bug fixes
-docs/your-update      # documentation only
-refactor/your-change  # code changes that don't fix bugs or add features
-test/your-tests       # adding or updating tests
-```
+| Prefix | Use |
+|--------|-----|
+| `feat/` | New features |
+| `fix/` | Bug fixes |
+| `docs/` | Documentation only |
+| `refactor/` | Code changes that don't fix bugs or add features |
+| `test/` | Adding or updating tests (when tests exist) |
 
-**Commit Messages**
-Use clear, descriptive messages with a type prefix:
+**Commit message format:**
 ```
 feat: add dependency detection for Python projects
 fix: handle empty directories in scanner
@@ -87,27 +109,32 @@ docs: update roadmap with new commands
 refactor: extract technology detection into separate module
 ```
 
-No automated commit linting (no `commitlint`, no Husky hooks).
+Branch from `main`. Keep commits focused and messages descriptive.
 
 ---
 
 ## Submitting Changes
 
-1. Fork the repository
-2. Create a branch from `main` using the prefixes above
-3. Make your changes
-4. Run `npm run build` and `npm run typecheck` — both must pass
-5. Commit with a clear message (see conventions above)
-6. Push and open a Pull Request
+1. **Fork** the repository
+2. **Create a branch** from `main` using the prefix convention above
+3. **Make your changes** — keep functions small, add types, follow existing patterns
+4. **Run quality gates** — `npm run typecheck && npm run build`
+5. **Test manually** — `npm run dev` and exercise your change
+6. **Commit** with a clear message
+7. **Push** and open a Pull Request against `main`
 
-**Review Process**
-- No documented PR template (`.github/pull_request_template.md` does not exist).
-- No CI workflow (`.github/workflows/` does not exist).
-- Reviews are manual; maintainers will run the build and typecheck themselves.
-- Be responsive to feedback; keep PRs focused.
+The project is in early stages. There is no formal CI pipeline, no PR template, and no required review process documented. PRs are reviewed by maintainers when capacity allows.
+
+---
+
+## Project Vision Context
+
+Aether's goal is to **transform any codebase into an AI-native workspace** by building a living knowledge base (`.aether/`) through static analysis first, then optional AI enrichment. The `genesis` command is the only implemented command today; `sync`, `doctor`, `explain`, `export`, MCP server, and VS Code extension are on the roadmap (see `README.md`).
+
+When contributing, consider how your change fits into the **genesis → sync → doctor → explain → export** lifecycle described in the README's philosophy section.
 
 ---
 
 ## Questions?
 
-Open an issue or start a discussion. No question is too small.
+Open an issue or start a discussion on GitHub. No question is too small.

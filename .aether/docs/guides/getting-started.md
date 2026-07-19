@@ -1,91 +1,90 @@
-# Getting Started
+# Getting Started with Aether
 
 ## What this is
 
-Aether is a CLI tool that transforms any codebase into an AI-native workspace by analyzing the project structure, detecting technologies, and generating a knowledge base (`.aether/`) that both humans and AI assistants can use to understand the project. You're looking at the Aether codebase itself — a TypeScript CLI built with Node.js.
+Aether is a CLI tool that analyzes a codebase and builds an AI-ready knowledge layer — documentation, architecture maps, and context files that help both humans and AI assistants understand the project. You run it *against* a repository (including this one) to generate a `.aether/` knowledge base. This guide covers running Aether itself for development.
 
 ## Prerequisites
 
-- **Node.js ≥ 20.0.0** (specified in `package.json` `"engines"`)
-- **npm** (comes with Node.js; `package-lock.json` confirms npm as the package manager)
+- **Node.js 20+** (from `engines` in `package.json`)
+- **npm** (a `package-lock.json` is present, so npm is the expected package manager)
 
-No other runtimes, toolchains, or Docker are required.
+No other runtimes, databases, or Docker are required.
 
 ## Install
 
 ```bash
+# Clone the repository
+git clone https://github.com/aether-one/aether.git
+cd aether
+
+# Install dependencies
 npm install
 ```
 
-This installs all dependencies listed in `package.json` (production: `chalk`; dev: `typescript`, `tsx`, `esbuild`, `postject`, `@types/node`).
-
 ## Configuration
 
-No configuration is required to run the CLI in development mode. The tool stores its global config (AI provider settings, API keys) in `~/.aether/config.json`, which is created automatically when you run `/config` inside the CLI. There is no `.env.example` file in this repository.
+No configuration is required to run the CLI in development mode. The tool reads project configuration from a global `~/.aether/config.json` (created via the `/config` command) and from per-project `.aether/config.json` or `.aether/settings/config.json`. An `AETHER_API_KEY` environment variable can also supply an API key, but it's optional — the CLI works without AI providers for static analysis.
+
+If you want to use AI-powered documentation generation, you'll need an API key from one of the supported providers (OpenAI, Anthropic, Gemini, OpenRouter) and run `/config` inside the CLI to save it.
 
 ## Run it
 
 ### Development mode (hot reload via tsx)
-
 ```bash
 npm run dev
 ```
+This starts the interactive CLI directly from TypeScript source. You'll see a startup animation (unless you pass `--no-animation`), then a prompt where you can type `/genesis`, `/config`, `/help`, etc.
 
-This runs `tsx src/cli/index.ts` — the TypeScript entry point directly, without a separate build step.
-
-### Build (compile TypeScript → JavaScript)
-
-```bash
-npm run build
-```
-
-Runs `tsc` per `tsconfig.json`, emitting to `dist/`.
-
-### Type-check only (no emit)
-
+### Type-check only
 ```bash
 npm run typecheck
 ```
+Runs `tsc --noEmit` — useful before committing.
 
-Runs `tsc --noEmit` — useful in CI or pre-commit.
+### Production build
+```bash
+npm run build
+```
+Compiles TypeScript to `dist/`. The binary entry point is `dist/cli/index.js`.
 
-### Start (run the compiled build)
-
+### Run built CLI
 ```bash
 npm start
 ```
+Runs `node dist/cli/index.js` — same interactive CLI, but from compiled output.
 
-Runs `node dist/cli/index.js` — the same entry point after `npm run build`.
-
-### Build a Single Executable Application (optional)
-
+### Build Single Executable Application (optional)
 ```bash
 npm run build:sea
 ```
-
-Runs `scripts/build-sea.mjs` (uses `esbuild` + `postject`) to produce a standalone binary. Not required for normal development.
+Produces a standalone binary via Node's SEA (Single Executable Application) using `scripts/build-sea.mjs`.
 
 ## Verify it works
 
-Run the dev command:
-
+Run the development CLI:
 ```bash
 npm run dev
 ```
 
-You should see the Aether startup animation (starfield + "⚡ aether" typewriter) followed by an interactive prompt:
+You should see:
+1. A short animated logo with the tagline "Transform any codebase into an AI-native workspace"
+2. A help hint: `Type /help for commands`
+3. An interactive prompt: `›`
 
+Try a command:
 ```
-⚡ aether
-Transform any codebase into an AI-native workspace.
-
-────────────────────────────────────────
-Type /help for commands
+/help
 ```
+You'll see the list of available commands (`/genesis`, `/sync`, `/config`, `/clean`, `/exit`, `/clear`).
 
-At the prompt, type `/help` to see available commands, or `/genesis` to analyze the current directory (this project). Press `Ctrl+C` to exit.
+Exit with:
+```
+/exit
+```
 
 ## Next steps
 
-- **Onboarding guide** — `onboarding.md` (generated after running `/genesis`) explains the mental model: how genesis, sync, and the knowledge base fit together.
-- **Contributing guide** — `CONTRIBUTING.md` in the repo root covers branch naming, commit messages, and the development workflow.
+- **Onboarding guide** — See `onboarding.md` (generated after running `/genesis` on a project) for the mental model of how Aether understands a codebase.
+- **Contributing guide** — See `CONTRIBUTING.md` in the repository root for branch naming, commit conventions, and the PR process.
+- **Try it on a project** — Run `/genesis` inside any codebase to generate its `.aether/` knowledge base.

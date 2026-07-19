@@ -1,8 +1,8 @@
-import { createHash } from "node:crypto";
 import type { LLMProvider } from "../providers/types.js";
 import { chatWithRetry, createRetryLogger } from "../providers/retry.js";
 import type { FileContent, DistillCache, DistillHooks } from "./types.js";
 import { DISTILL_CONCURRENCY } from "./constants.js";
+import { hashContent } from "../util/hash.js";
 
 export type { FileContent, DistillCache, DistillHooks } from "./types.js";
 
@@ -10,13 +10,11 @@ const DEFAULT_PURPOSE =
   "writing complete developer documentation for this project (architecture, modules, " +
   "public API / CLI commands, domain rules, and setup/usage)";
 
-const hashContent = (s: string): string => createHash("sha256").update(s).digest("hex");
-
 /**
- * Distills files into factual notes, reusing a previous cache for files whose content
- * is unchanged — so /sync only pays for what actually changed. Notes replace raw code
- * in the generation prompt, so nothing is dropped; it's just compressed once per file
- * and remembered. Returns the assembled notes plus the refreshed cache to persist.
+ * Distills files into factual notes, grouped into budget-sized chunks so a large project
+ * takes a handful of calls — not one per file. Each chunk is cached by a hash of its
+ * contents, so /sync only re-distills the chunks whose files changed; everything else is
+ * reused. Returns the assembled notes plus the refreshed cache to persist.
  */
 export async function distillFilesIncremental(
   files: FileContent[],
@@ -27,55 +25,85 @@ export async function distillFilesIncremental(
   hooks?: DistillHooks,
 ): Promise<{ notes: string; cache: DistillCache }> {
   // A cache built with a different model can't be trusted — notes depend on the model.
-  const reusable = prev && prev.model === model ? prev.files : {};
-  const cache: DistillCache = { model, files: {} };
+  const reusable = prev && prev.model === model ? prev.chunks : {};
+  const cache: DistillCache = { model, chunks: {} };
 
-  const stale: FileContent[] = [];
-  for (const file of files) {
-    const hit = reusable[file.path];
-    if (hit && hit.hash === hashContent(file.content)) {
-      cache.files[file.path] = hit;
-    } else {
-      stale.push(file);
+  const chunkBudget = Math.max(4_000, Math.floor(budget * 0.75));
+  const ordered = chunkFiles(files, chunkBudget).map((chunk) => ({ chunk, hash: chunkHash(chunk) }));
+
+  // Reuse cached chunks up front; only the rest hit the model.
+  const stale = ordered.filter(({ hash }) => {
+    if (reusable[hash] !== undefined) {
+      cache.chunks[hash] = reusable[hash];
+      return false;
     }
-  }
+    return true;
+  });
 
-  hooks?.onStart?.(stale.length);
+  if (stale.length > 0) hooks?.onStart?.(stale.length);
 
-  // Only stale files hit the model — one call per file so each can be cached on its own.
-  // Independent, so run concurrently; tune with AETHER_DISTILL_CONCURRENCY.
+  // Chunks are independent — run several concurrently. Tune with AETHER_DISTILL_CONCURRENCY.
   let done = 0;
-  await mapPool(stale, DISTILL_CONCURRENCY, async (file) => {
-    const notes = await distillSingle(file, provider, model, budget);
-    cache.files[file.path] = { hash: hashContent(file.content), notes };
+  await mapPool(stale, DISTILL_CONCURRENCY, async ({ chunk, hash }) => {
+    cache.chunks[hash] = await distillChunk(chunk, provider, model);
     hooks?.onBatch?.(++done, stale.length);
   });
 
-  const notes = files.map((f) => cache.files[f.path]?.notes).filter(Boolean).join("\n\n");
+  const notes = ordered.map(({ hash }) => cache.chunks[hash]).filter(Boolean).join("\n\n");
   return { notes, cache };
 }
 
-/** Distills one file, slicing it if it alone exceeds the budget. */
-async function distillSingle(file: FileContent, provider: LLMProvider, model: string, budget: number): Promise<string> {
-  const units: FileContent[] =
-    file.content.length > budget
-      ? Array.from({ length: Math.ceil(file.content.length / budget) }, (_, p) => ({
-          path: `${file.path} (part ${p + 1})`,
-          content: file.content.slice(p * budget, (p + 1) * budget),
-        }))
-      : [file];
+/** sha256 of a chunk's files (path + content, LF-normalized) — the cache key for that chunk. */
+function chunkHash(chunk: FileContent[]): string {
+  return hashContent(chunk.map((f) => `${f.path}\n${f.content}`).join("\n"));
+}
 
-  const parts: string[] = [];
-  for (const unit of units) {
-    const body = `### ${unit.path}\n\`\`\`\n${unit.content}\n\`\`\``;
-    const response = await chatWithRetry(
-      provider,
-      { model, messages: [{ role: "user", content: `${distillInstruction(DEFAULT_PURPOSE)}\n\n${body}` }], temperature: 0 },
-      { onRetry: createRetryLogger() },
-    );
-    parts.push(response.content.trim());
+/** Distills one chunk of files into factual notes in a single model call. */
+async function distillChunk(chunk: FileContent[], provider: LLMProvider, model: string): Promise<string> {
+  const body = chunk.map((f) => `### ${f.path}\n\`\`\`\n${f.content}\n\`\`\``).join("\n\n");
+  const response = await chatWithRetry(
+    provider,
+    { model, messages: [{ role: "user", content: `${distillInstruction(DEFAULT_PURPOSE)}\n\n${body}` }], temperature: 0 },
+    { onRetry: createRetryLogger() },
+  );
+  return response.content.trim();
+}
+
+/**
+ * Packs files into chunks that each stay under `budget` characters. Small files are
+ * grouped together; a file larger than the budget is sliced so even one huge file fits.
+ */
+function chunkFiles(files: FileContent[], budget: number): FileContent[][] {
+  const chunks: FileContent[][] = [];
+  let current: FileContent[] = [];
+  let currentLen = 0;
+
+  const flush = () => {
+    if (current.length > 0) {
+      chunks.push(current);
+      current = [];
+      currentLen = 0;
+    }
+  };
+
+  for (const file of files) {
+    if (file.content.length > budget) {
+      flush();
+      const parts = Math.ceil(file.content.length / budget);
+      for (let p = 0; p < parts; p++) {
+        chunks.push([
+          { path: `${file.path} (part ${p + 1}/${parts})`, content: file.content.slice(p * budget, (p + 1) * budget) },
+        ]);
+      }
+      continue;
+    }
+    if (currentLen + file.content.length > budget) flush();
+    current.push(file);
+    currentLen += file.content.length;
   }
-  return parts.filter(Boolean).join("\n\n");
+
+  flush();
+  return chunks;
 }
 
 

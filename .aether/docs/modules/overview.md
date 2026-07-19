@@ -1,258 +1,267 @@
 # Modules Overview
 
-## 1. CLI Module (`src/cli/`)
+## 1. src/cli — CLI Entry Point
 
-### Purpose
-Entry point for the CLI application. Handles version display, command registration, startup animation, and launches the interactive chat REPL.
+**Purpose**  
+Entry point for the `aether` CLI. Handles version flags, command registration, interactive detection, startup animation, and launches the interactive chat loop.
 
-### Key Files
-- **`index.ts`** — Main entry point (`main()` async function). Handles version flags, registers all commands, detects TTY, runs startup animation or static banner, then starts the interactive chat loop.
+**Key Files**  
+- `src/cli/index.ts` — `main()` async entry point; registers commands in order (help, builtins, config, clean); detects TTY; plays startup animation or prints banner; calls `startChat()`.
 
-### Exports
-- No named exports; executes `main()` immediately on import.
+**Exports**  
+- `main()` — async entry point (called via `bin` entry in `package.json`)
 
-### Dependencies
-- `../ui/animation.js` — `playStartupAnimation()`, `printBanner()`
-- `../ui/prompt.js` — `startChat()`
-- `../commands/help.js` — `registerHelpCommand()`
-- `../commands/builtins.js` — `registerBuiltinCommands()`
-- `../commands/config.js` — `registerConfigCommand()`
-- `../commands/clean.js` — `registerCleanCommand()`
-- Injected `__AETHER_VERSION__` at build time
+**Dependencies**  
+- `../ui/animation.ts` → `playStartupAnimation()`, `printBanner()`
+- `../ui/prompt.ts` → `startChat()`
+- `../commands/help.ts` → `registerHelpCommand()`
+- `../commands/builtins.ts` → `registerBuiltinCommands()`
+- `../commands/config.ts` → `registerConfigCommand()`
+- `../commands/clean.ts` → `registerCleanCommand()`
 
-### Flow
-1. Parse `process.argv` for `--version`/`-v` → print version and exit
-2. Register all commands via registry (help, builtins, config, clean)
-3. Detect TTY (`process.stdin.isTTY`)
-4. If TTY and not `--no-animation` → `await playStartupAnimation()` else `printBanner()`
-5. Call `startChat()` to enter interactive REPL
-4. Uncaught errors → stderr + `process.exit(1)`
+**Flow**  
+1. Parse `--version`/`-v` → print version and exit  
+2. Register all commands via registry  
+3. Detect TTY (`process.stdin.isTTY`)  
+4. If TTY and not `--no-animation` → `playStartupAnimation()` else `printBanner()`  
+5. Call `startChat()` → enters interactive REPL loop  
+4. Catch errors → stderr + exit(1)
 
 ---
 
-## 2. Commands Module (`src/commands/`)
+## 2. src/commands — Command Implementations & Registry
 
-### Purpose
-Implements all slash-commands (`/genesis`, `/config`, `/clean`, `/help`) and the command registry that routes slash-commands to handlers.
+**Purpose**  
+Implements all slash-commands (`/help`, `/config`, `/clean`, `/genesis` via builtins) and provides the command registry for dispatch.
 
-### Key Files
-| File | Role |
-|------|------|
-| `registry.ts` | `CommandRegistry` class + singleton `registry` instance; maps command name → `Command` (name, description, usage, handler) |
-| `help.ts` | `registerHelpCommand()` — registers `/help` listing all registered commands |
-| `builtins.ts` | `registerBuiltinCommands()` — registers `/genesis` (placeholder handler) |
-| `config.ts` | `registerConfigCommand()` — registers `/config` with subcommands: `show`, `<provider>`, `set <key> <value>` |
-| `clean.ts` | `registerCleanCommand()` — registers `/clean` (placeholder handler) |
+**Key Files**  
+- `src/commands/registry.ts` — `CommandRegistry` class (Map-based), `Command` interface, `registry` singleton, `execute(input)` parser  
+- `src/commands/help.ts` — `registerHelpCommand()` → lists all registered commands with descriptions/usage  
+- `src/commands/config.ts` — `registerConfigCommand()` → `/config [--provider|--model|--url|--key]` + subcommands (`show`, `set`, `quick-setup`)  
+- `src/commands/clean.ts` — `registerCleanCommand()` → `/clean` (removes `.aether/` cache)  
+- `src/commands/builtins.ts` — `registerBuiltinCommands()` → registers `/genesis` (delegates to genesis pipeline)
 
-### Exports
-- `registry` (singleton `CommandRegistry`)
-- `Command` interface
+**Exports**  
+- `registry` (singleton `CommandRegistry`)  
 - `registerHelpCommand()`, `registerBuiltinCommands()`, `registerConfigCommand()`, `registerCleanCommand()`
 
-### Dependencies
-- `chalk` (styling)
-- `../config/index.js` — `loadConfig`, `saveConfig`, `getDefaultConfig`, `validateConfig`, `detectProviderFromBaseUrl`, `AetherConfig`
-- `../ui/theme.js` — `ACCENT`, `DIM`, `SUCCESS`
-- `./registry.js` — `registry` singleton
+**Dependencies**  
+- `../config/index.ts` → `loadConfig()`, `saveConfig()`, `validateConfig()`, `getDefaultConfig()`, `maskKey()`  
+- `../config/types.ts` → `AetherConfig`  
+- `../ui/theme.ts` → `ACCENT`, `DIM`, `SUCCESS`, `WARN`, `ERROR`  
+- `chalk` (external)
 
-### Flow
-1. CLI entry point calls registration functions in order
-2. User types `/command args` in REPL
-3. `registry.execute(input)` parses command name, looks up handler, invokes `handler(args)`
-4. `/config` subcommands delegate to config module (`loadConfig`, `saveConfig`, `validateConfig`, provider defaults)
-
----
-
-## 3. Config Module (`src/config/`)
-
-### Purpose
-Manages global and per-project configuration: provider, model, baseUrl, apiKey. Handles precedence (global default → project override → env var), persistence to `~/.aether/config.json`, and validation.
-
-### Key Files
-| File | Role |
-|------|------|
-| `types.ts` | `AetherConfig` interface (`provider`, `model`, `baseUrl`, `apiKey?`, `timeout?`) |
-| `index.ts` | Core logic: `loadConfig`, `saveConfig`, `getDefaultConfig`, `detectProviderFromBaseUrl`, `validateConfig`, `getGlobalDir`, `getProjectCacheDir` |
-| `readme.ts` | `AETHER_README` string — template written to `.aether/README.md` |
-| `scaffold.ts` | `ensureProjectReadme(rootDir)` — writes `.aether/README.md` if missing |
-
-### Exports
-- `AetherConfig` (type)
-- `loadConfig(rootDir)`, `saveConfig(rootDir, config)`, `getDefaultConfig(provider)`, `detectProviderFromBaseUrl(baseUrl)`, `validateConfig(config)`, `getGlobalDir()`, `getGlobalConfigPath()`, `getProjectCacheDir(rootDir)`, `ensureProjectReadme(rootDir)`
-
-### Dependencies
-- `node:fs/promises`, `node:fs`, `node:path`, `node:os`, `node:crypto`
-- `./types.js`, `./readme.js`
-
-### Flow
-1. `loadConfig(rootDir)` reads `~/.aether/config.json` (global) → merges project entry → merges in-repo `.aether/config.json` (non-secret) → merges `AETHER_API_KEY` env
-2. `saveConfig` writes to global file; first call seeds `default`, subsequent calls update `projects[projectId]`
-3. `validateConfig` checks required fields and valid provider enum
-4. `ensureProjectReadme` scaffolds `.aether/README.md` on first genesis
+**Flow**  
+1. CLI calls `register*Command()` during startup → populates `registry` Map  
+2. User types `/command args` in chat → `registry.execute(input)` parses `/name args` → calls `handler(args)`  
+3. Handlers use config API, chalk/theme for output, and genesis pipeline (for `/genesis`)
 
 ---
 
-## 4. Genesis Module (`src/genesis/`)
+## 3. src/config — Configuration Management
 
-### Purpose
-Core pipeline: scan repository → build project context → distill source files → plan documentation → generate docs → fingerprint → snapshot → sync.
+**Purpose**  
+Manages global and per-project configuration: provider, model, baseUrl, apiKey, timeouts. Handles precedence (project > global default > env), validation, scaffolding `.aether/README.md`.
 
-### Key Files
-| File | Role |
-|------|------|
-| `types.ts` | Core types: `ProjectContext`, `FileContent`, `FileFingerprint`, `GitInfo`, `DistillCache`, `DocDefinition`, `DocMeta`, `Snapshot`, `FileDiff`, `SyncPlan`, `SectionPatch`, `CustomDocSpec`, `DocIndexEntry`, `DocSection` |
-| `constants.ts` | Tunable limits via env: `MAX_FILE_SIZE`, `MAX_TOTAL_CHARS`, `MAX_FILES_WALKED`, `MAX_WALK_DEPTH`, `DOC_CONTEXT_BUDGET`, `GEN_CONCURRENCY`, `DISTILL_CONCURRENCY` |
-| `context.ts` | `scanContext(rootDir)` — walks repo, categorizes files (config, vision, entry, source), builds `ProjectContext` |
-| `digest.ts` | `buildPlannerDigest(context)` — deterministic project map for planner (signals, symbols, config, tree) |
-| `distill.ts` | `distillFilesIncremental(files, provider, model, budget, prevCache, hooks)` — LLM-based distillation with caching & concurrency |
-| `fingerprint.ts` | `buildFingerprint(context)`, `getGitInfo(rootDir)`, `getGitLog(rootDir, sinceCommit)` — SHA256 fingerprints + git metadata |
-| `scope.ts` | `buildSharedProjectContext(context, provider, model, hooks)` — builds shared context for doc generation (full or distilled) |
-| `planner.ts` | `planDocs(contextPrompt, provider, model, options)` — LLM plans which docs to generate; returns `DocDefinition[]` |
-| `docs.ts` | `DOC_DEFINITIONS` (13 built-in docs), `buildCustomDocDefinition`, `buildDocsIndex`, prompt imports |
-| `sync.ts` | `loadSnapshot`, `diffFingerprint`, `planSync`, `writeSnapshot`, `applySectionPatch`, `refreshDoc` — incremental sync logic |
+**Key Files**  
+- `src/config/types.ts` — `AetherConfig` interface (`provider`, `model`, `baseUrl`, `apiKey?`, `timeout?`)  
+- `src/config/index.ts` — Core logic: `DEFAULT_CONFIGS`, `PROVIDER_HOSTS`, `detectProviderFromBaseUrl()`, `getGlobalDir()`, `getGlobalConfigPath()`, `projectId()`, `getProjectCacheDir()`, `loadConfig()`, `saveConfig()`, `validateConfig()`  
+- `src/config/scaffold.ts` — `ensureProjectReadme(rootDir)` writes `.aether/README.md` from `AETHER_README`  
+- `src/config/readme.ts` — `AETHER_README` markdown constant documenting `.aether/` structure
 
-### Exports
-All types from `types.ts`; functions from each submodule as listed above.
+**Exports**  
+- `AetherConfig` type  
+- `DEFAULT_CONFIGS`, `PROVIDER_HOSTS`  
+- `getDefaultConfig(provider)`, `detectProviderFromBaseUrl(url)`  
+- `getGlobalDir()`, `getGlobalConfigPath()`, `projectId(rootDir)`, `getProjectCacheDir(rootDir)`  
+- `loadConfig(rootDir)`, `saveConfig(rootDir, config)`, `validateConfig(config)`  
+- `ensureProjectReadme(rootDir)`  
+- `AETHER_README`
 
-### Dependencies
-- `../providers/types.js` — `LLMProvider`, `ChatRequest`, `ChatResponse`
-- `../providers/retry.js` — `chatWithRetry`, `createRetryLogger`, `RetryOptions`
-- `../config/index.js` — `getProjectCacheDir`
-- `../prompts/index.js` — prompt templates (`BASE_PROMPT`, `PLANNER_PROMPT`, `SYNC_PLANNER_PROMPT`, etc.)
-- `node:fs/promises`, `node:fs`, `node:path`, `node:crypto`, `node:child_process`
+**Dependencies**  
+- `node:fs/promises`, `node:fs`, `node:path`, `node:os` (homedir)  
+- `../util/hash.ts` → `hashContent()` (for projectId)  
+- `../util/env.ts` → `envInt()` (not directly used here but in constants)
 
-### Flow (Genesis)
-```
-scanContext(rootDir) → ProjectContext
-  → buildPlannerDigest(context) → digest string
-  → planDocs(digest, provider, model) → DocDefinition[]
-  → buildSharedProjectContext(context, provider, model) → sharedContext string
-  → for each doc: generate via LLM using doc-specific prompt + sharedContext
-  → write docs to .aether/docs/
-  → buildFingerprint(context) → fingerprints
-  → getGitInfo(rootDir) → git info
-  → writeSnapshot(rootDir, meta, context, docs) → .aether/settings/context.json
-```
-
-### Flow (Sync)
-```
-loadSnapshot(rootDir) → previous Snapshot
-diffFingerprint(prev.files, currentContext) → FileDiff
-hasChanges(diff) → boolean
-planSync(digest, diff, existingDocs, gitLog, provider, model) → SyncPlan (regenerate + add)
-for each doc in plan.regenerate: refreshDoc(...)
-for each doc in plan.add: generate new
-writeSnapshot(...)
-```
+**Flow**  
+1. `loadConfig(rootDir)` reads: global config (`~/.aether/config.json`) → project override (`.aether/config.json` or `.aether/settings/config.json`) → `AETHER_API_KEY` env  
+2. Precedence: project override > global default > env  
+3. `saveConfig()` writes to global file; first config becomes `default`, subsequent per-project under `projects[projectId]`  
+4. `validateConfig()` enforces required fields and valid provider enum  
+5. `ensureProjectReadme()` scaffolds `.aether/README.md` on first genesis
 
 ---
 
-## 5. Prompts Module (`src/prompts/`)
+## 4. src/genesis — Core Analysis & Documentation Pipeline
 
-### Purpose
-Central registry of all prompt templates used by the LLM pipeline: base contracts, document-specific prompts, and pipeline prompts (planner, sync).
+**Purpose**  
+Core "genesis" pipeline: scans a project, builds context, fingerprints files, plans documentation, distills large codebases, generates documentation via LLM, and manages snapshots for sync.
 
-### Key Files
-| File | Role |
-|------|------|
-| `base.ts` | `BASE_PROMPT`, `PROMPT_SUFFIX` (machine contract, sandwich), `HUMAN_BASE_PROMPT`, `HUMAN_PROMPT_SUFFIX` (human-facing guides) |
-| `index.ts` | Re-exports all prompts |
-| `docs/*.ts` | 13 document prompts: `GETTING_STARTED_PROMPT`, `ONBOARDING_PROMPT`, `CONTRIBUTING_PROMPT`, `SYSTEM_OVERVIEW_PROMPT`, `FOLDER_STRUCTURE_PROMPT`, `TECH_STACK_PROMPT`, `CODING_STANDARDS_PROMPT`, `MODULES_PROMPT`, `API_PROMPT`, `BUSINESS_RULES_PROMPT`, `DIAGRAMS_PROMPT`, `AI_CONTEXT_PROMPT`, `GLOSSARY_PROMPT`, `buildCustomDocPrompt` |
-| `pipeline/planner.ts` | `PLANNER_PROMPT` |
-| `pipeline/sync.ts` | `SYNC_PLANNER_PROMPT`, `DOC_UPDATE_INSTRUCTIONS`, `SECTION_PATCH_INSTRUCTIONS` |
+**Key Files**  
+- `src/genesis/types.ts` — Core types: `ProjectContext`, `FileFingerprint`, `GitInfo`, `DistillCache`, `DocDefinition`, `DocSection`, `Snapshot`, `FileDiff`, `SyncPlan`, `SectionPatch`  
+- `src/genesis/constants.ts` — Env-overridable limits: `MAX_FILE_SIZE`, `MAX_TOTAL_CHARS`, `MAX_FILES_WALKED`, `MAX_WALK_DEPTH`, `DOC_CONTEXT_BUDGET`, `GEN_CONCURRENCY`, `DISTILL_CONCURRENCY`  
+- `src/genesis/context.ts` — (not shown in detail) builds `ProjectContext` from filesystem scan  
+- `src/genesis/digest.ts` — `buildPlannerDigest(context)` → compact summary for planner; `detectSignals()`, `extractSymbols()`  
+- `src/genesis/fingerprint.ts` — `buildFingerprint(context)`, `getGitInfo(rootDir)`, `getGitLog(rootDir, sinceCommit)`  
+- `src/genesis/scope.ts` — `buildSharedProjectContext(context, provider, model, hooks?)` → builds shared context prompt; distills if over `DOC_CONTEXT_BUDGET` using incremental cache  
+- `src/genesis/distill.ts` — `distillFilesIncremental(files, provider, model, budget, prevCache, hooks)` → incremental LLM-based distillation with caching  
+- `src/genesis/planner.ts` — `planDocs(contextPrompt, provider, model, options?)` → LLM plans which docs to generate; `parsePlan()`, `extractJsonArray()`  
+- `src/genesis/docs.ts` — `DOC_DEFINITIONS` (13 built-in docs), `buildDocPrompt()`, `buildDocUpdatePrompt()`, `buildSectionPatchPrompt()`, `buildCustomDocDefinition()`, `buildDocsIndex()`, `SECTION_ORDER`  
+- `src/genesis/sync.ts` — (not shown in detail) sync planning/diffing
 
-### Exports
-All prompt constants and `buildCustomDocPrompt` function.
+**Exports**  
+- Types: `ProjectContext`, `FileContent`, `FileFingerprint`, `GitInfo`, `DistillCache`, `DistillHooks`, `DocSection`, `DocDefinition`, `CustomDocSpec`, `DocIndexEntry`, `DocMeta`, `Snapshot`, `FileDiff`, `SyncPlan`, `SectionPatch`  
+- Constants: `MAX_FILE_SIZE`, `MAX_TOTAL_CHARS`, `MAX_FILES_WALKED`, `MAX_WALK_DEPTH`, `DOC_CONTEXT_BUDGET`, `GEN_CONCURRENCY`, `DISTILL_CONCURRENCY`  
+- Functions: `buildPlannerDigest()`, `detectSignals()`, `extractSymbols()`, `buildFingerprint()`, `getGitInfo()`, `getGitLog()`, `buildSharedProjectContext()`, `distillFilesIncremental()`, `planDocs()`, `parsePlan()`, `buildDocPrompt()`, `buildDocUpdatePrompt()`, `buildSectionPatchPrompt()`, `buildCustomDocDefinition()`, `buildDocsIndex()`, `DOC_DEFINITIONS`, `SECTION_ORDER`
 
-### Dependencies
-- Internal only (string templates)
+**Dependencies**  
+- `../providers/types.ts` → `LLMProvider`, `ChatRequest`, `ChatResponse`  
+- `../providers/retry.ts` → `chatWithRetry()`, `RetryOptions`  
+- `../config/index.ts` → `getProjectCacheDir()`, `AetherConfig`  
+- `../prompts/index.ts` → all prompt templates  
+- `../util/hash.ts` → `hashContent()`  
+- `../util/env.ts` → `envInt()`  
+- `node:fs/promises`, `node:fs`, `node:path`, `node:crypto`, `node:child_process` (execFileSync)
 
-### Flow
-Prompts are imported by genesis pipeline:
-- `BASE_PROMPT` + `PROMPT_SUFFIX` wrap every LLM call (sandwich)
-- Document prompts used during doc generation
-- `PLANNER_PROMPT` used by `planDocs`
-- `SYNC_PLANNER_PROMPT` used by `planSync`
-
----
-
-## 6. Providers Module (`src/providers/`)
-
-### Purpose
-Abstract LLM provider interface with OpenAI-compatible implementation, retry logic, and factory.
-
-### Key Files
-| File | Role |
-|------|------|
-| `types.ts` | `LLMProvider` interface, `ChatMessage`, `ChatRequest`, `ChatResponse`, `StreamChunk` |
-| `openai-compatible.ts` | `OpenAICompatibleProvider` class — implements `LLMProvider` for OpenAI-compatible APIs (OpenAI, OpenRouter, Gemini via OpenAI compat, Anthropic via compat TODO) |
-| `factory.ts` | `createProvider(config)` — switches on `config.provider` returns `OpenAICompatibleProvider` |
-| `retry.ts` | `chatWithRetry`, `createRetryLogger`, `DEFAULT_OPTIONS`, `RATE_LIMIT_OPTIONS` — exponential backoff with rate-limit detection |
-
-### Exports
-- `LLMProvider`, `ChatMessage`, `ChatRequest`, `ChatResponse`, `StreamChunk` (types)
-- `OpenAICompatibleProvider` (class)
-- `createProvider(config)` (factory)
-- `chatWithRetry`, `createRetryLogger`, `RetryOptions`
-
-### Dependencies
-- Native `fetch`, `AbortController`, `TextDecoder`
-- `../ui/theme.js` — `DIM`, `WARN` (for retry logging)
-
-### Flow
-1. `createProvider(config)` → `OpenAICompatibleProvider(baseUrl, apiKey, timeout, name)`
-2. Pipeline calls `provider.chat(request)` or `provider.chatStream(request)`
-3. `chatWithRetry` wraps calls with retry logic (3 retries default, 6 for 429)
-4. Streaming uses SSE parsing with idle timeout (2 min default)
+**Flow**  
+1. **Scan** (`context.ts` not shown but implied) → builds `ProjectContext` (files, tree, config, entry points)  
+2. **Digest** (`digest.ts`) → `buildPlannerDigest()` creates compact summary for planner  
+3. **Plan** (`planner.ts`) → `planDocs()` sends digest to LLM → returns planned `DocDefinition[]` (built-in + custom)  
+4. **Scope** (`scope.ts`) → `buildSharedProjectContext()` builds shared context; if over budget, `distillFilesIncremental()` compresses source files via LLM with incremental caching  
+5. **Generate** (`docs.ts`) → for each `DocDefinition`, `buildDocPrompt()` creates prompt → sent to LLM → output written to `.aether/docs/`  
+6. **Fingerprint** (`fingerprint.ts`) → `buildFingerprint()` hashes all tracked files; `getGitInfo()` captures git state  
+7. **Snapshot** → writes `.aether/snapshot.json` with fingerprints, git info, generated docs metadata  
+8. **Sync** (`sync.ts`) → on re-run, diffs fingerprints → `SyncPlan` (regenerate/add) → partial updates via `buildSectionPatchPrompt()`
 
 ---
 
-## 7. UI Module (`src/ui/`)
+## 5. src/prompts — Prompt Templates
 
-### Purpose
-Terminal UI components: animated startup banner, interactive REPL with command dropdown, step runner with spinners, and theme constants.
+**Purpose**  
+Centralized prompt templates for all LLM interactions: base prompts, per-document prompts, and pipeline prompts (planner, sync).
 
-### Key Files
-| File | Role |
-|------|------|
-| `theme.ts` | Color constants: `ACCENT_HEX`, `ACCENT`, `ACCENT_BOLD`, `DIM`, `SUCCESS`, `WARN`, `ERROR` |
-| `animation.ts` | `playStartupAnimation()` (animated starfield + typewriter), `printBanner()` (static) |
-| `prompt.ts` | `startChat()` — readline REPL with tab completion, live dropdown, command delegation to registry |
-| `steps.ts` | `StepRunner` class (multi-step progress with spinners, pooled concurrency), `LineSpinner` class (single-line spinner) |
+**Key Files**  
+- `src/prompts/base.ts` — `BASE_PROMPT`, `PROMPT_SUFFIX`, `HUMAN_BASE_PROMPT`, `HUMAN_PROMPT_SUFFIX`  
+- `src/prompts/docs/*.ts` — 13 document-specific prompts:  
+  - `getting-started.ts` → `GETTING_STARTED_PROMPT`  
+  - `onboarding.ts` → `ONBOARDING_PROMPT`  
+  - `contributing.ts` → `CONTRIBUTING_PROMPT`  
+  - `system-overview.ts` → `SYSTEM_OVERVIEW_PROMPT`  
+  - `folder-structure.ts` → `FOLDER_STRUCTURE_PROMPT`  
+  - `tech-stack.ts` → `TECH_STACK_PROMPT`  
+  - `coding-standards.ts` → `CODING_STANDARDS_PROMPT`  
+  - `modules.ts` → `MODULES_PROMPT`  
+  - `api.ts` → `API_PROMPT`  
+  - `business.ts` → `BUSINESS_RULES_PROMPT`  
+  - `diagrams.ts` → `DIAGRAMS_PROMPT`  
+  - `ai-context.ts` → `AI_CONTEXT_PROMPT`  
+  - `glossary.ts` → `GLOSSARY_PROMPT`  
+  - `custom-doc.ts` → `buildCustomDocPrompt(title, focus)`  
+- `src/prompts/pipeline/planner.ts` → `PLANNER_PROMPT`  
+- `src/prompts/pipeline/sync.ts` → `SYNC_PLANNER_PROMPT`, `DOC_UPDATE_INSTRUCTIONS`, `SECTION_PATCH_INSTRUCTIONS`  
+- `src/prompts/index.ts` — Barrel export of all above
 
-### Exports
-- `playStartupAnimation()`, `printBanner()`
-- `startChat()`
-- `StepRunner`, `Step` interface, `LineSpinner`
-- Theme constants
+**Exports**  
+All prompt constants and `buildCustomDocPrompt` function
 
-### Dependencies
-- `chalk`
-- `node:readline` (prompt.ts)
-- `../commands/registry.js` (prompt.ts)
-- Internal: `./theme.js`
+**Dependencies**  
+- None (pure string constants)
 
-### Flow
-- CLI entry → `playStartupAnimation()` or `printBanner()` → `startChat()`
-- `startChat()` creates readline interface, registers completer, keypress handler for dropdown
-- User input → `registry.execute()` for `/` commands → `respond()` for chat
-- `StepRunner` used by genesis/sync (not yet wired in provided code)
+**Flow**  
+1. `genesis/docs.ts` imports prompts → passes to `buildDocPrompt()` with context  
+2. `genesis/planner.ts` uses `PLANNER_PROMPT` + `BASE_PROMPT` + context + `PROMPT_SUFFIX`  
+3. `genesis/sync.ts` uses `SYNC_PLANNER_PROMPT`, `DOC_UPDATE_INSTRUCTIONS`, `SECTION_PATCH_INSTRUCTIONS`  
+4. Human-facing docs (Guides) use `HUMAN_BASE_PROMPT`/`HUMAN_PROMPT_SUFFIX`; others use machine prompts
 
 ---
 
-## 8. Util Module (`src/util/`)
+## 6. src/providers — LLM Provider Abstraction
 
-### Purpose
-Tiny utility helpers.
+**Purpose**  
+Abstracts LLM providers behind a common interface. Currently only `OpenAICompatibleProvider` implemented (used for OpenAI, Gemini, Anthropic, OpenRouter with TODO for Anthropic format differences).
 
-### Key Files
-- `env.ts` — `envInt(name, fallback)` — safe integer env var parsing
+**Key Files**  
+- `src/providers/types.ts` — Interfaces: `ChatMessage`, `ChatRequest`, `ChatResponse`, `StreamChunk`, `LLMProvider`  
+- `src/providers/openai-compatible.ts` — `OpenAICompatibleProvider` class implementing `LLMProvider` (chat, chatStream, ping)  
+- `src/providers/factory.ts` — `createProvider(config: AetherConfig)` → switches on provider name, instantiates `OpenAICompatibleProvider` with provider-specific name  
+- `src/providers/retry.ts` — `chatWithRetry()`, `RetryOptions`, `isRateLimitError()`, `extractRetryDelay()`, `formatRetryLine()`, `createRetryLogger()`  
+- `src/providers/index.ts` — Barrel export
 
-### Exports
-- `envInt`
+**Exports**  
+- Types: `LLMProvider`, `ChatMessage`, `ChatRequest`, `ChatResponse`, `StreamChunk`  
+- `OpenAICompatibleProvider` class  
+- `createProvider(config)` factory  
+- Retry utilities: `chatWithRetry()`, `RetryOptions`, `formatRetryLine()`, `createRetryLogger()`
 
-### Dependencies
-- None (Node built-ins only)
+**Dependencies**  
+- `../config/index.ts` → `AetherConfig`  
+- `../ui/theme.ts` → `DIM`, `WARN` (for retry logging)  
+- `node:fetch` (implied by `OpenAICompatibleProvider` implementation, not shown but implied)
+
+**Flow**  
+1. `createProvider(config)` → returns provider instance based on `config.provider`  
+2. Caller uses `provider.chat(request)` or `provider.chatStream(request)`  
+3. For resilience, callers use `chatWithRetry(provider, request, options)` which handles retries, rate limits (429), exponential backoff, and optional logging via `onRetry` callback
+
+---
+
+## 7. src/ui — User Interface Components
+
+**Purpose**  
+Terminal UI: startup animation, interactive REPL with command dropdown, step runner with spinners, theme constants.
+
+**Key Files**  
+- `src/ui/theme.ts` — Color constants: `ACCENT_HEX`, `ACCENT`, `ACCENT_BOLD`, `DIM`, `SUCCESS`, `WARN`, `ERROR` (all `chalk` wrappers)  
+- `src/ui/animation.ts` — `playStartupAnimation()` (clears screen, animated logo, types "⚡ aether"), `printBanner()` (static fallback)  
+- `src/ui/prompt.ts` — `startChat()` → readline REPL with:  
+  - Tab completion for `/` commands via `registry.getAll()`  
+  - Live dropdown on `/` prefix (ANSI cursor save/restore)  
+  - Pattern-matched responses for `help`, `hello`, `genesis` keywords  
+  - Rotating tips every 4 messages  
+- `src/ui/steps.ts` — `StepRunner` class for multi-step progress:  
+  - `addStep(label)`, `runStep(index, fn)`, `runPooled(limit, fn)` (concurrent with per-step spinners)  
+  - `setWriting(index)`, `setDetail(index, detail)`, `finish(summary?)`, `error(message)`  
+  - `LineSpinner` class for individual line spinners (braille frames)
+
+**Exports**  
+- `playStartupAnimation()`, `printBanner()`  
+- `startChat()`  
+- `Step`, `StepRunner`, `LineSpinner`  
+- Theme constants: `ACCENT`, `ACCENT_BOLD`, `DIM`, `SUCCESS`, `WARN`, `ERROR`
+
+**Dependencies**  
+- `chalk` (external)  
+- `node:readline` (prompt.ts)  
+- `../commands/registry.ts` → `registry`, `Command` (prompt.ts)  
+- Internal: `./theme.ts` used by all
+
+**Flow**  
+1. CLI startup → `playStartupAnimation()` or `printBanner()`  
+2. `startChat()` → readline loop → user input → completer/dropdown → `registry.execute()` for `/` commands → pattern responses for free text  
+3. Long-running commands (e.g., `/genesis`) use `StepRunner` to show multi-step progress with spinners
+
+---
+
+## 8. src/util — Utility Functions
+
+**Purpose**  
+Small, focused helpers used across the codebase.
+
+**Key Files**  
+- `src/util/hash.ts` — `hashContent(content)` → normalizes CRLF→LF, returns SHA-256 hex  
+- `src/util/env.ts` — `envInt(name, fallback)` → parses positive int from env var with validation
+
+**Exports**  
+- `hashContent(content: string): string`  
+- `envInt(name: string, fallback: number): number`
+
+**Dependencies**  
+- `node:crypto` (hash.ts)  
+- None (env.ts)
+
+**Flow**  
+- `hashContent()` used by `fingerprint.ts` for file fingerprints and `config/index.ts` for projectId  
+- `envInt()` used by `genesis/constants.ts` for all env-overridable limits
 
 ---
 
@@ -263,100 +272,75 @@ graph TD
     CLI[src/cli/index.ts] --> UI_ANIM[src/ui/animation.ts]
     CLI --> UI_PROMPT[src/ui/prompt.ts]
     CLI --> CMD_HELP[src/commands/help.ts]
-    CLI --> CMD_BUILTINS[src/commands/builtins.ts]
+    CLI --> CMD_BUILTIN[src/commands/builtins.ts]
     CLI --> CMD_CONFIG[src/commands/config.ts]
     CLI --> CMD_CLEAN[src/commands/clean.ts]
 
     CMD_HELP --> REG[src/commands/registry.ts]
-    CMD_BUILTINS --> REG
+    CMD_BUILTIN --> REG
     CMD_CONFIG --> REG
     CMD_CLEAN --> REG
 
     CMD_CONFIG --> CONFIG[src/config/index.ts]
     CMD_CONFIG --> THEME[src/ui/theme.ts]
+    CMD_CLEAN --> CONFIG
 
-    REG --> CHALK[chalk]
+    REG --> CMD_HELP
+    REG --> CMD_BUILTIN
+    REG --> CMD_CONFIG
+    REG --> CMD_CLEAN
 
-    CONFIG --> FS[fs/promises]
-    CONFIG --> PATH[path]
-    CONFIG --> OS[os]
-    CONFIG --> CRYPTO[crypto]
-    CONFIG --> READ[src/config/readme.ts]
-    CONFIG --> SCAFF[src/config/scaffold.ts]
-
-    GENESIS_CTX[src/genesis/context.ts] --> FS
-    GENESIS_CTX --> PATH
-    GENESIS_CTX --> CRYPTO
-
-    GENESIS_DIGEST[src/genesis/digest.ts] --> GENESIS_CTX
-    GENESIS_DIGEST --> CONST[src/genesis/constants.ts]
-
-    GENESIS_DISTILL[src/genesis/distill.ts] --> PROV_TYPES[src/providers/types.ts]
-    GENESIS_DISTILL --> RETRY[src/providers/retry.ts]
-    GENESIS_DISTILL --> GENESIS_TYPES[src/genesis/types.ts]
-    GENESIS_DISTILL --> CONST
-
-    GENESIS_FP[src/genesis/fingerprint.ts] --> GENESIS_TYPES
-    GENESIS_FP --> CHILD[child_process]
-    GENESIS_FP --> CRYPTO
-
-    GENESIS_SCOPE[src/genesis/scope.ts] --> GENESIS_CTX
-    GENESIS_SCOPE --> PROV_TYPES
-    GENESIS_SCOPE --> CONFIG
-    GENESIS_SCOPE --> CONST
-    GENESIS_SCOPE --> GENESIS_DISTILL
-
-    GENESIS_PLANNER[src/genesis/planner.ts] --> PROV_TYPES
-    GENESIS_PLANNER --> RETRY
-    GENESIS_PLANNER --> PROMPTS[src/prompts/index.ts]
-    GENESIS_PLANNER --> GENESIS_DOCS[src/genesis/docs.ts]
-
-    GENESIS_DOCS --> PROMPTS
-    GENESIS_DOCS --> GENESIS_TYPES
-
-    GENESIS_SYNC[src/genesis/sync.ts] --> GENESIS_TYPES
-    GENESIS_SYNC --> PROV_TYPES
-    GENESIS_SYNC --> RETRY
-    GENESIS_SYNC --> PROMPTS
-    GENESIS_SYNC --> GENESIS_DOCS
-    GENESIS_SYNC --> GENESIS_FP
-    GENESIS_SYNC --> GENESIS_PLANNER
-
-    PROV_FACTORY[src/providers/factory.ts] --> CONFIG_TYPES[src/config/types.ts]
-    PROV_FACTORY --> PROV_TYPES
-    PROV_FACTORY --> OAI_COMPAT[src/providers/openai-compatible.ts]
-
-    OAI_COMPAT --> FETCH[fetch]
-    OAI_COMPAT --> ABORT[AbortController]
-
-    RETRY --> PROV_TYPES
-    RETRY --> THEME
-
-    UI_PROMPT --> READLINE[readline]
     UI_PROMPT --> REG
     UI_PROMPT --> THEME
-    UI_PROMPT --> CHALK
 
-    UI_STEPS[src/ui/steps.ts] --> CHALK
-    UI_STEPS --> THEME
-
-    UI_ANIM --> CHALK
     UI_ANIM --> THEME
+    UI_STEPS[src/ui/steps.ts] --> THEME
 
-    CONST --> ENV[src/util/env.ts]
+    GENESIS_CTX[src/genesis/context.ts] --> GENESIS_TYPES[src/genesis/types.ts]
+    GENESIS_DIGEST[src/genesis/digest.ts] --> GENESIS_TYPES
+    GENESIS_DIGEST --> GENESIS_CONST[src/genesis/constants.ts]
+    GENESIS_FP[src/genesis/fingerprint.ts] --> GENESIS_TYPES
+    GENESIS_FP --> UTIL_HASH[src/util/hash.ts]
+    GENESIS_SCOPE[src/genesis/scope.ts] --> GENESIS_TYPES
+    GENESIS_SCOPE --> CONFIG
+    GENESIS_SCOPE --> PROV_TYPES[src/providers/types.ts]
+    GENESIS_SCOPE --> GENESIS_DISTILL[src/genesis/distill.ts]
+    GENESIS_SCOPE --> GENESIS_CONST
+    GENESIS_DISTILL --> PROV_TYPES
+    GENESIS_DISTILL --> PROV_RETRY[src/providers/retry.ts]
+    GENESIS_PLANNER[src/genesis/planner.ts] --> GENESIS_TYPES
+    GENESIS_PLANNER --> PROV_TYPES
+    GENESIS_PLANNER --> PROV_RETRY
+    GENESIS_PLANNER --> PROMPTS[src/prompts/index.ts]
+    GENESIS_DOCS[src/genesis/docs.ts] --> GENESIS_TYPES
+    GENESIS_DOCS --> PROMPTS
+    GENESIS_SYNC[src/genesis/sync.ts] --> GENESIS_TYPES
+
+    PROV_FACTORY[src/providers/factory.ts] --> CONFIG
+    PROV_FACTORY --> PROV_TYPES
+    PROV_FACTORY --> PROV_OAI[src/providers/openai-compatible.ts]
+
+    PROV_RETRY --> PROV_TYPES
+    PROV_RETRY --> THEME
+
+    CONFIG --> UTIL_HASH
+    CONFIG --> UTIL_ENV[src/util/env.ts]
+    GENESIS_CONST --> UTIL_ENV
+
+    CMD_BUILTIN --> GENESIS_PIPELINE[genesis pipeline]
 ```
 
 ---
 
-## Summary Table
+## Summary of Module Relationships
 
-| Module | Primary Responsibility | Key Entry Points |
-|--------|------------------------|------------------|
-| `cli` | App bootstrap, REPL | `main()` |
-| `commands` | Slash-command registry & implementations | `registry`, `register*Command()` |
-| `config` | Global/project config, persistence, validation | `loadConfig`, `saveConfig`, `validateConfig` |
-| `genesis` | Scan → digest → plan → distill → generate → fingerprint → snapshot → sync | `scanContext`, `buildPlannerDigest`, `planDocs`, `distillFilesIncremental`, `buildSharedProjectContext`, `planSync`, `writeSnapshot` |
-| `prompts` | All LLM prompt templates | `BASE_PROMPT`, `*_PROMPT` constants |
-| `providers` | LLM abstraction, OpenAI-compat impl, retry | `createProvider`, `chatWithRetry` |
-| `ui` | Terminal UX (animation, REPL, steppers) | `playStartupAnimation`, `startChat`, `StepRunner` |
-| `util` | Env parsing | `envInt` |
+| Module | Primary Consumers | Key Exports |
+|--------|-------------------|-------------|
+| `src/cli` | `package.json` bin entry | `main()` |
+| `src/commands` | `src/cli`, `src/ui/prompt` | `registry`, command registrars |
+| `src/config` | `src/commands/config`, `src/commands/clean`, `src/genesis/scope`, `src/providers/factory` | `loadConfig`, `saveConfig`, `validateConfig`, `getProjectCacheDir`, `AetherConfig` |
+| `src/genesis` | `src/commands/builtins` (via genesis pipeline) | Types, pipeline functions, `DOC_DEFINITIONS` |
+| `src/prompts` | `src/genesis/planner`, `src/genesis/docs`, `src/genesis/sync` | All prompt templates |
+| `src/providers` | `src/genesis/scope`, `src/genesis/distill`, `src/genesis/planner`, `src/providers/retry` | `LLMProvider`, `createProvider`, `chatWithRetry` |
+| `src/ui` | `src/cli`, `src/commands`, `src/genesis` (via StepRunner) | `startChat`, `StepRunner`, theme constants |
+| `src/util` | `src/config`, `src/genesis/fingerprint`, `src/genesis/constants` | `hashContent`, `envInt` |

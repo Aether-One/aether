@@ -2,94 +2,76 @@
 
 ## Goal
 
-Aether is a CLI tool that transforms any codebase into an AI-native workspace by scanning the repository, analyzing its structure and code, and generating a comprehensive knowledge base (documentation, architecture diagrams, AI context) stored in a `.aether/` directory. It uses static analysis first, then optionally enhances with LLM providers to produce deeper documentation.
+Aether is a CLI tool that transforms any codebase into an AI-native workspace by automatically analyzing repository structure, detecting technologies, and generating a comprehensive knowledge base (`.aether/`) that helps both developers and AI assistants understand the project. It uses a hybrid approach: static analysis first, optional LLM-powered deep analysis second.
 
 ## Architecture
 
-### Backend (CLI Application)
-- **Runtime**: Node.js ≥20 (ESM, TypeScript)
-- **Entry point**: `src/cli/index.ts` → `main()` function
-- **Build**: TypeScript compilation (`tsc`) to `dist/`; optional Single Executable Application via `scripts/build-sea.mjs` (esbuild + postject)
-- **Dependencies**: `chalk` (terminal colors), `tsx` (dev runner), `esbuild`/`postject` (SEA build)
+**Type**: Node.js/TypeScript command-line application  
+**Runtime**: Node.js ≥20 (ESM)  
+**Distribution**: npm package with global binary (`aether`); optional Single Executable Application (SEA) build via `esbuild` + `postject`
 
-### LLM Provider Layer
-- **Interface**: `LLMProvider` (`src/providers/types.ts`) — `chat`, `chatStream`, `ping`
-- **Implementation**: `OpenAICompatibleProvider` (`src/providers/openai-compatible.ts`) — single class handling all providers via OpenAI-compatible API
-- **Supported providers** (configured via `/config`): OpenAI, Anthropic, Gemini, OpenRouter
-- **Retry logic**: Exponential backoff with rate-limit handling (`src/providers/retry.ts`)
+### Layers
 
-### Configuration System
-- **Global config**: `~/.aether/config.json` — stores default provider/model and per-project overrides
-- **Project config**: `.aether/config.json` or `.aether/settings/config.json` (non-secret overrides only)
-- **Secrets**: API keys stored only in global config or `AETHER_API_KEY` env var
-- **Validation**: `validateConfig()` enforces provider ∈ {openai, anthropic, gemini, openrouter}, model, baseUrl, apiKey
-
-### Knowledge Generation Pipeline (Genesis)
-1. **Scan** (`src/genesis/context.ts`): Walks project (respecting `IGNORED_DIRS`, `MAX_WALK_DEPTH`, `MAX_FILES_WALKED`), collects config files, vision files, entry points, source files up to `MAX_TOTAL_CHARS`
-2. **Digest** (`src/genesis/digest.ts`): Builds deterministic project map (directory tree, config content, detected signals, public symbols)
-3. **Plan** (`src/genesis/planner.ts`): LLM selects which documents to generate from catalog + custom proposals
-4. **Distill** (`src/genesis/distill.ts`): Incrementally extracts factual notes from source files (cached by content hash)
-5. **Assemble** (`src/genesis/scope.ts`): Builds shared context (full prompt or distilled notes + orientation)
-6. **Generate** (`src/commands/builtins.ts`): Parallel doc generation via `StepRunner.runPooled(GEN_CONCURRENCY)`
-7. **Persist**: Writes docs to `.aether/docs/`, index to `.aether/docs/README.md`, snapshot to `.aether/settings/context.json`
-
-### Sync Pipeline
-- Loads previous snapshot, diffs fingerprints (`src/genesis/fingerprint.ts`), plans incremental updates (`src/genesis/sync.ts`), regenerates only affected docs via section patching or full rewrite.
-
-### UI Layer
-- **Animation**: `playStartupAnimation()` / `printBanner()` (`src/ui/animation.ts`)
-- **Interactive REPL**: `startChat()` with readline, tab completion, live dropdown (`src/ui/prompt.ts`)
-- **Progress**: `StepRunner` (multi-step with spinner) and `LineSpinner` (`src/ui/steps.ts`)
-- **Theme**: Chalk-based color constants (`src/ui/theme.ts`)
+| Layer | Responsibility |
+|-------|----------------|
+| **CLI Entry** | Argument parsing, version flag, interactive/non-interactive mode detection, startup animation/banner |
+| **Command Registry** | Slash-command routing (`/genesis`, `/sync`, `/config`, `/clean`, `/help`, `/exit`, `/clear`) |
+| **Genesis Pipeline** | Project scanning → context building → doc planning → distillation → parallel doc generation → snapshot |
+| **Provider Abstraction** | Unified interface for OpenAI-compatible APIs (OpenAI, Anthropic, Gemini, OpenRouter) with retry/rate-limit handling |
+| **Configuration** | Global (`~/.aether/config.json`) + per-project overrides; env var `AETHER_API_KEY` fallback |
+| **UI System** | Animated startup, interactive readline chat with dropdown completion, step runners with spinners |
+| **File System Ops** | Repository walking, fingerprinting (SHA-256), git integration, cache management, output writing |
 
 ## System Components
 
-| Component | Location | Role |
-|-----------|----------|------|
-| CLI Entry | `src/cli/index.ts` | Argument parsing, version flag, command registration, startup animation, REPL launch |
-| Command Registry | `src/commands/registry.ts` | Maps `/command` names to handlers; `execute(input)` parses and dispatches |
-| Built-in Commands | `src/commands/builtins.ts` | `genesis`, `sync`, `exit`, `clear` handlers |
-| Config Command | `src/commands/config.ts` | `/config` subcommands (show, set, provider quick-setup) |
-| Clean Command | `src/commands/clean.ts` | `/clean` cache/config/project management |
-| Config Module | `src/config/index.ts` | Load/save/validate config, provider defaults, project cache dirs |
-| Scaffold | `src/config/scaffold.ts` | Ensures `.aether/README.md` exists |
-| Genesis Context | `src/genesis/context.ts` | `scanContext()` — file discovery, importance ranking, budget enforcement |
-| Genesis Digest | `src/genesis/digest.ts` | `buildPlannerDigest()` — deterministic project map for planner |
-| Genesis Planner | `src/genesis/planner.ts` | `planDocs()` — LLM-driven doc selection from catalog + custom |
-| Genesis Distill | `src/genesis/distill.ts` | `distillFilesIncremental()` — cached per-file factual extraction |
-| Genesis Scope | `src/genesis/scope.ts` | `buildSharedProjectContext()` — shared context for all doc generation |
-| Genesis Docs | `src/genesis/docs.ts` | Doc definitions (13 catalog docs), prompt builders, index generator |
-| Genesis Sync | `src/genesis/sync.ts` | Snapshot load/diff, sync planning, section patching, snapshot write |
-| Fingerprint | `src/genesis/fingerprint.ts` | `buildFingerprint()`, `getGitInfo()`, `getGitLog()` |
-| Provider Factory | `src/providers/factory.ts` | `createProvider(config)` → `OpenAICompatibleProvider` |
-| Provider Core | `src/providers/openai-compatible.ts` | Streaming chat/completions, idle timeout, SSE parsing |
-| Provider Retry | `src/providers/retry.ts` | `chatWithRetry()` with rate-limit backoff, retry logger |
-| UI Animation | `src/ui/animation.ts` | Starfield animation, banner, typewriter logo |
-| UI Prompt | `src/ui/prompt.ts` | Interactive REPL, command autocomplete dropdown |
-| UI Steps | `src/ui/steps.ts` | Multi-step progress runner, pooled execution, line spinner |
-| UI Theme | `src/ui/theme.ts` | Color constants (ACCENT, DIM, SUCCESS, WARN, ERROR) |
-| Prompts Base | `src/prompts/base.ts` | `BASE_PROMPT`, `PROMPT_SUFFIX`, `HUMAN_BASE_PROMPT`, `HUMAN_PROMPT_SUFFIX` |
-| Prompt Catalog | `src/prompts/docs/*.ts` | 13 document-specific prompt templates |
-| Pipeline Prompts | `src/prompts/pipeline/*.ts` | `PLANNER_PROMPT`, `SYNC_PLANNER_PROMPT`, patch/update instructions |
-| Util Env | `src/util/env.ts` | `envInt()` — safe integer env var parsing |
+| Component | File(s) | Role |
+|-----------|---------|------|
+| **CLI Entry** | `src/cli/index.ts` | Bootstraps app, registers commands, starts animation or banner, launches interactive chat |
+| **Command Registry** | `src/commands/registry.ts` | Maps slash commands to handlers; parses `/name args` input |
+| **Genesis Command** | `src/commands/builtins.ts` | Orchestrates full analysis: scan → plan → distill → generate → index → snapshot |
+| **Sync Command** | `src/commands/builtins.ts` | Incremental update: diff fingerprints → plan affected docs → regenerate/add → merge snapshot |
+| **Config Command** | `src/commands/config.ts` | Manages provider/model/URL/key; quick-setup for 4 providers; show/set subcommands |
+| **Clean Command** | `src/commands/clean.ts` | Removes global config, cache, or per-project data; lists projects with sizes |
+| **Context Scanner** | `src/genesis/context.ts` | Walks repo (max 10k files, depth 12), collects config/vision/entry/source files, builds directory tree |
+| **Digest Builder** | `src/genesis/digest.ts` | Extracts signals (routes, domain logic, tests) and symbols for planner context |
+| **Planner** | `src/genesis/planner.ts` | Asks LLM which docs to generate (6 core + conditional + up to 5 custom); falls back to core set |
+| **Distiller** | `src/genesis/distill.ts` | Incrementally summarizes large file sets into budgeted notes with chunk caching (SHA-256) |
+| **Doc Generator** | `src/genesis/docs.ts` | 13 predefined `DocDefinition`s across 5 sections; builds prompts from `src/prompts/`; writes markdown |
+| **Sync Engine** | `src/genesis/sync.ts` | Diffs fingerprints, plans refreshes/additions, supports section-level patches, merges metadata |
+| **Provider Factory** | `src/providers/factory.ts` | Creates `OpenAICompatibleProvider` for `openai`/`gemini`/`anthropic`/`openrouter` |
+| **OpenAI-Compatible Provider** | `src/providers/openai-compatible.ts` | Implements `LLMProvider` interface: `chat`, `chatStream`, `ping` |
+| **Retry Logic** | `src/providers/retry.ts` | Exponential backoff; rate-limit (429) detection with provider-suggested delay upgrade |
+| **Interactive Prompt** | `src/ui/prompt.ts` | Readline loop with `/` command dropdown, keyword responses, rotating tips |
+| **Step Runner** | `src/ui/steps.ts` | `StepRunner` (sequential/pooled steps with spinners), `LineSpinner` (braille animation) |
+| **Theme** | `src/ui/theme.ts` | Chalk styles: `ACCENT` (#895bf4), `DIM`, `SUCCESS`, `WARN`, `ERROR` |
+| **Config Loader** | `src/config/index.ts` | Precedence: project global → global default → in-repo override → `AETHER_API_KEY` env |
+| **Fingerprinting** | `src/genesis/fingerprint.ts` | SHA-256 hashes of tracked files; git commit/branch/dirty; git log since last snapshot |
+| **Utilities** | `src/util/hash.ts`, `src/util/env.ts` | SHA-256 content hashing (CRLF-normalized); safe env int parsing |
 
 ## Communication Patterns
 
-- **CLI → User**: Stdout/stderr with ANSI styling (chalk), readline for interactive input
-- **CLI → LLM Providers**: HTTPS POST to `baseUrl/chat/completions` (OpenAI-compatible), streaming via SSE
-- **CLI → File System**: Node `fs/promises` for reading project files, writing `.aether/` output
-- **CLI → Git**: `child_process.execFileSync` for `git rev-parse`, `git log`, `git status`
-- **Internal**: Direct TypeScript module imports; command registry uses string-based dispatch (`/command`)
+| Pattern | Usage |
+|---------|-------|
+| **Slash Commands** | Primary CLI interaction: `/genesis`, `/sync`, `/config`, `/clean`, `/help`, `/exit`, `/clear` |
+| **Interactive Chat** | Readline-based REPL with tab completion and dropdown suggestions for commands |
+| **LLM Request/Response** | `LLMProvider.chat(request)` → `ChatResponse`; `chatStream` for streaming; all via OpenAI-compatible HTTP |
+| **File System** | Synchronous/async reads for scanning; writes for `.aether/docs/`, `.aether/docs/README.md`, snapshots, cache |
+| **Git Subprocess** | `execFileSync` for `git rev-parse`, `git status`, `git log` (fingerprinting, sync diffs) |
+| **Inter-Process (SEA)** | Single executable bundles Node + script via `esbuild` + `postject` (optional distribution) |
 
 ## Authentication & Authorization
 
-Not detected from provided context. The CLI operates with local file system permissions and user-provided API keys (stored in `~/.aether/config.json` or `AETHER_API_KEY` env). No multi-user auth, tokens, or RBAC system exists in the codebase.
+- **LLM Provider API Keys**: Stored in global config (`~/.aether/config.json`) per provider/project; masked on display (first 4 + `••••` + last 4)
+- **Environment Variable Fallback**: `AETHER_API_KEY` read by `loadConfig()` if no config entry exists
+- **Supported Providers**: `openai` (requires `OPENAI_API_KEY`), `anthropic` (requires `ANTHROPIC_API_KEY`), `gemini`, `openrouter` (requires `OPENROUTER_API_KEY`)
+- **No Project-Level Auth**: Aether itself has no user authentication; it operates on local repository files
 
 ## Deployment
 
-- **Distribution**: npm package (`"bin": { "aether": "./dist/cli/index.js" }`)
-- **Install**: `npm install -g aether` or `npx aether`
-- **Build**: `npm run build` (TypeScript → `dist/`); `npm run build:sea` produces single executable via `scripts/build-sea.mjs` (esbuild bundle + postject)
-- **Runtime requirement**: Node.js ≥20 (or SEA binary)
-- **Configuration**: User runs `/config <provider>` once to store API key globally; per-project settings optional
-- **No container/Docker/Kubernetes configs detected** in the provided context.
+- **Installation**: `npm install -g aether` (bin entry `./dist/cli/index.js`)
+- **Build**: `npm run build` → TypeScript → `dist/` (declaration maps, source maps)
+- **Development**: `npm run dev` → `tsx src/cli/index.ts`
+- **SEA Build**: `npm run build:sea` → `scripts/build-sea.mjs` uses `esbuild` + `postject` to produce single binary
+- **Requirements**: Node.js ≥20 (enforced in `package.json` `engines`)
+- **Configuration Persistence**: Global directory `~/.aether/` (config.json, cache/ per project)
+- **Project Output**: `.aether/` in repository root (docs/, README.md, snapshots) — intended for version control

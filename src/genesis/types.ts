@@ -32,10 +32,10 @@ export interface GitInfo {
   dirty: boolean;
 }
 
-/** Per-file distilled notes, keyed by path, so /sync only re-distills what changed. */
+/** Distilled notes keyed by chunk-content hash, so /sync only re-distills changed chunks. */
 export interface DistillCache {
   model: string;
-  files: Record<string, { hash: string; notes: string }>;
+  chunks: Record<string, string>;
 }
 
 /** Progress callbacks for the distillation pass. */
