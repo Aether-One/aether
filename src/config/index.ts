@@ -1,6 +1,7 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { ensureAetherScaffold } from "./scaffold.js";
 
 export interface AetherConfig {
   provider: "openai" | "anthropic" | "gemini" | "openrouter";
@@ -57,28 +58,40 @@ export function detectProviderFromBaseUrl(baseUrl: string): AetherConfig["provid
   return match ? match.provider : null;
 }
 
+/** Machine state lives in `.aether/settings/`: config.json (local) and context.json (snapshot). */
+export function getSettingsDir(rootDir: string): string {
+  return join(rootDir, ".aether", "settings");
+}
+
 export function getConfigPath(rootDir: string): string {
+  return join(getSettingsDir(rootDir), "config.json");
+}
+
+// Pre-settings/ layout kept config at .aether/config.json — read it as a fallback.
+function getLegacyConfigPath(rootDir: string): string {
   return join(rootDir, ".aether", "config.json");
 }
 
 export async function loadConfig(rootDir: string): Promise<AetherConfig | null> {
   const configPath = getConfigPath(rootDir);
-  if (!existsSync(configPath)) return null;
+  const readPath = existsSync(configPath)
+    ? configPath
+    : existsSync(getLegacyConfigPath(rootDir))
+      ? getLegacyConfigPath(rootDir)
+      : null;
+  if (!readPath) return null;
 
   try {
-    const content = await readFile(configPath, "utf-8");
-    return JSON.parse(content) as AetherConfig;
+    return JSON.parse(await readFile(readPath, "utf-8")) as AetherConfig;
   } catch {
     return null;
   }
 }
 
 export async function saveConfig(rootDir: string, config: AetherConfig): Promise<void> {
-  const aetherDir = join(rootDir, ".aether");
-  await mkdir(aetherDir, { recursive: true });
-
-  const configPath = getConfigPath(rootDir);
-  await writeFile(configPath, JSON.stringify(config, null, 2), "utf-8");
+  await mkdir(getSettingsDir(rootDir), { recursive: true });
+  await writeFile(getConfigPath(rootDir), JSON.stringify(config, null, 2), "utf-8");
+  await ensureAetherScaffold(rootDir);
 }
 
 export function validateConfig(config: AetherConfig): string[] {

@@ -1,72 +1,65 @@
-# Getting Started
+# Getting Started with Aether
 
 ## What this is
 
-Aether is a TypeScript CLI that analyzes a codebase and generates an AI-native knowledge base (documentation) using LLM providers via an interactive terminal prompt.
+Aether is a command-line tool (a Node.js program) that scans a software project and, when given access to an LLM, generates a structured set of documentation files inside a `.aether/` directory. The point is to turn a repository into a self-explaining "knowledge base" that both humans and AI assistants can read — the CLI itself is the early-stage implementation of that idea, and today the only fully wired-up command flow is `/genesis` (analyze a project) plus a `/sync` refresh and a `/config` setup step.
 
 ## Prerequisites
 
-- Node.js `>=20.0.0` (from `engines` in `package.json`)
+You need **Node.js 20 or newer**. This is enforced by the `engines` field in `package.json` (`"node": ">=20.0.0"`). There is no Dockerfile, no language-toolchain file beyond that, and no other runtime declared, so Node 20+ is the only hard requirement.
 
 ## Install
 
-The project uses npm (evidenced by `package-lock.json` and `package.json`):
+The project ships a `package-lock.json`, which means dependencies are managed with **npm**. After cloning, install them with:
 
 ```bash
 npm install
 ```
 
+That pulls the single runtime dependency (`chalk`) and the dev tools (`typescript`, `tsx`, `esbuild`, `postject`, and Node types) declared in `package.json`.
+
 ## Configuration
 
-Before using the AI features, configure a provider inside the interactive CLI (no environment variables or `.env.example` are present in the project). Run the CLI, then:
-
-```
-/config gemini
-/config set key <your-api-key>
-```
-
-Provider config is saved to `.aether/config.json` by `saveConfig()` in `src/config/index.ts`.
+No environment variables or credential files are required to run Aether locally in its default mode. The CLI reads and writes its own config under `.aether/settings/config.json` (created on first save), and the `/config` command handles that for you. If you want AI-generated docs, you will later point it at a provider with `/config` (for example `/config openai` and an API key), but that is optional for the tool to start and for static scanning to work. There is no `.env.example` in the project, so nothing else needs to be set up beforehand.
 
 ## Run it
 
-From `package.json` `scripts` and `src/cli/index.ts`:
+The `package.json` scripts are your entry points. For local development, run the CLI directly from TypeScript without building:
 
-**Dev mode:**
 ```bash
 npm run dev
 ```
-(which runs `tsx src/cli/index.ts`)
 
-**Build:**
+This executes `tsx src/cli/index.ts`, the actual CLI entry point (`src/cli/index.ts` calls `main()`, prints a banner or startup animation depending on your terminal, and drops you into an interactive prompt).
+
+To produce a compiled version:
+
 ```bash
 npm run build
 ```
-(which runs `tsc`, output to `dist/` per `tsconfig.json`)
 
-**Start built version:**
+That runs `tsc` and emits JavaScript to `dist/` (per `tsconfig.json`). You can then run the built binary:
+
 ```bash
 npm start
 ```
-(which runs `node dist/cli/index.js`)
 
-**Type check without emitting:**
-```bash
-npm run typecheck
+which runs `node dist/cli/index.js` — the same file declared as the `bin` target for the `aether` command.
+
+There is also a `npm run typecheck` (`tsc --noEmit`) for checking types without emitting, and `npm run build:sea` (`node scripts/build-sea.mjs`) for a standalone executable build, but those are not needed just to run it.
+
+Once the prompt is up, the first real action is to analyze a project. From inside the CLI, run:
+
+```
+/genesis
 ```
 
-The CLI entry point is `src/cli/index.ts` (bin: `aether` → `./dist/cli/index.js`). It registers commands (`/help`, `/genesis`, `/config`, `/sync`, `/exit`, `/clear`) and starts an interactive prompt via `startChat()` in `src/ui/prompt.ts`.
+This scans the current directory, plans docs via the LLM if configured, and writes them under `.aether/docs/`. If you have not set a provider, the command will ask for config first through `/config`.
 
 ## Verify it works
 
-After running `npm run dev`, the terminal shows the startup banner (via `playStartupAnimation()` / `printBanner()` in `src/ui/animation.ts`) followed by:
-
-```
-     Type /help to get started.
-```
-
-Type `/help` and the CLI prints the available commands list (from `registerHelpCommand()` in `src/commands/help.ts`).
+When you start the CLI with `npm run dev`, you should see the `⚡ aether` banner and the line `Your AI-native workspace companion.` followed by `Type /help to get started.` (or an animated version of the same). Typing `/help` lists the registered commands (`/genesis`, `/sync`, `/config`, `/exit`, `/clear`). Running `/genesis` in a project folder should produce a `.aether/docs/` directory with a `README.md` index and the generated markdown files; that output on disk is the concrete sign it worked.
 
 ## Next steps
 
-- Read `onboarding.md` for the mental model and the why.
-- A `contributing.md` guide is generated by the planner only if real contribution-process evidence exists in the target project; it is not part of this repo's own source.
+To understand how the pieces fit together — the "why" behind `genesis`, `sync`, and the planned lifecycle — read the Onboarding guide at `docs/guides/onboarding.md` (generated by Aether, or described by `ONBOARDING_PROMPT` in `src/prompts/onboarding.ts`). If you want to change the code, the `CONTRIBUTING.md` at the repo root explains branch naming, commit style, and the build/typecheck steps expected before a pull request.

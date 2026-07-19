@@ -253,7 +253,9 @@ export function buildCustomDocDefinition(spec: CustomDocSpec): DocDefinition {
  * Groups the generated docs by section (Guides first) and links each one relative
  * to docs/, so the knowledge base reads as a structured site instead of loose files.
  */
-export function buildDocsIndex(projectName: string, docs: DocDefinition[]): string {
+export type DocIndexEntry = Pick<DocDefinition, "outputPath" | "title" | "section" | "summary">;
+
+export function buildDocsIndex(projectName: string, docs: DocIndexEntry[]): string {
   const lines: string[] = [];
 
   lines.push(`# ${projectName} — Documentation`);

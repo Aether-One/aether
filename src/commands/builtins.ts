@@ -8,6 +8,16 @@ import { buildPlannerDigest } from "../genesis/digest.js";
 import { planDocs } from "../genesis/planner.js";
 import { buildSharedProjectContext } from "../genesis/scope.js";
 import { buildDocsIndex } from "../genesis/docs.js";
+import { getGitLog } from "../genesis/fingerprint.js";
+import {
+  loadSnapshot,
+  diffFingerprint,
+  hasChanges,
+  planSync,
+  writeSnapshot,
+  metaFromDefinition,
+  mergeDocMetas,
+} from "../genesis/sync.js";
 import { StepRunner, LineSpinner } from "../ui/steps.js";
 import { mkdir, writeFile } from "node:fs/promises";
 import { existsSync, statSync } from "node:fs";
@@ -56,8 +66,7 @@ export function registerBuiltinCommands(): void {
         process.stdout.write(`\n${ACCENT("  ⚡ ")}${DIM("aether genesis")}\n\n`);
         process.stdout.write(`     ${chalk.yellow("!")} Docs already exist at ${DIM(".aether/docs/")}.\n`);
         process.stdout.write(`     ${DIM("Regenerating everything from scratch isn't the best move once docs exist.")}\n\n`);
-        process.stdout.write(`     ${DIM("A lighter update command is planned:")} ${ACCENT("/sync")} ${DIM("— refreshes docs based on what changed instead of redoing all of them.")}\n`);
-        process.stdout.write(`     ${chalk.yellow("⚠")}  ${DIM("/sync is still under development — not available yet.")}\n\n`);
+        process.stdout.write(`     ${DIM("Use")} ${ACCENT("/sync")} ${DIM("— it refreshes only the docs affected by what changed since the last run.")}\n\n`);
         process.stdout.write(`     ${DIM("To fully regenerate now anyway:")} /genesis --force\n\n`);
         return;
       }
@@ -178,17 +187,12 @@ export function registerBuiltinCommands(): void {
         await mkdir(dirname(indexPath), { recursive: true });
         await writeFile(indexPath, buildDocsIndex(context.name, docsToGenerate), "utf-8");
 
-        // Write context.json
-        await mkdir(aetherDir, { recursive: true });
-        await writeFile(
-          join(aetherDir, "context.json"),
-          JSON.stringify({
-            generatedAt: new Date().toISOString(),
-            provider: config.provider,
-            model: config.model,
-            docs: ["docs/README.md", ...docsToGenerate.map((d) => d.outputPath)],
-          }, null, 2),
-          "utf-8",
+        // Snapshot this run — the "point" /sync diffs against (file fingerprint + doc set).
+        await writeSnapshot(
+          targetDir,
+          { provider: config.provider, model: config.model },
+          context,
+          docsToGenerate.map(metaFromDefinition),
         );
 
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
@@ -201,14 +205,143 @@ export function registerBuiltinCommands(): void {
 
   registry.register({
     name: "sync",
-    description: "Update existing docs incrementally (coming soon)",
+    description: "Refresh only the docs affected by what changed since the last run",
     usage: "/sync [path]",
-    handler: () => {
+    handler: async (args) => {
+      const trimmedArgs = args.trim();
+
+      if (trimmedArgs === "--help" || trimmedArgs === "-h" || trimmedArgs === "help") {
+        showSyncHelp();
+        return;
+      }
+
+      const targetDir = trimmedArgs || process.cwd();
+      if (!existsSync(targetDir) || !statSync(targetDir).isDirectory()) {
+        process.stdout.write(`\n${chalk.red("  ✗")} Directory not found: ${targetDir}\n\n`);
+        return;
+      }
+
       process.stdout.write(`\n${ACCENT("  ⟳ ")}${DIM("aether sync")}\n\n`);
-      process.stdout.write(`     ${chalk.yellow("🚧")} Still under development — not available yet.\n\n`);
-      process.stdout.write(`     ${DIM("The idea: re-scan the project and refresh only the docs affected by")}\n`);
-      process.stdout.write(`     ${DIM("what changed, instead of regenerating everything with /genesis.")}\n\n`);
-      process.stdout.write(`     ${DIM("For now, use")} /genesis --force ${DIM("to fully regenerate.\n\n")}`);
+
+      // Need a genesis baseline to diff against.
+      const snapshot = await loadSnapshot(targetDir);
+      if (!snapshot) {
+        process.stdout.write(`     ${chalk.yellow("!")} No genesis snapshot found at ${DIM(".aether/settings/context.json")}.\n`);
+        process.stdout.write(`     ${DIM("Run")} /genesis ${DIM("first to create the baseline docs.")}\n\n`);
+        return;
+      }
+
+      const config = await loadConfig(process.cwd());
+      if (!config) {
+        process.stdout.write(`     ${chalk.red("✗")} No config found.\n`);
+        process.stdout.write(`     ${DIM("Run")} /config gemini ${DIM("to configure your AI provider first.")}\n\n`);
+        return;
+      }
+
+      const provider = createProvider(config);
+
+      try {
+        // Connect
+        process.stdout.write(`     ${DIM("Connecting to")} ${config.provider} (${config.model})...`);
+        if (!(await provider.ping())) {
+          process.stdout.write(`\n\n${chalk.red("  ✗")} Cannot reach ${config.provider} at ${config.baseUrl}\n\n`);
+          return;
+        }
+        process.stdout.write(` ${SUCCESS("✓")}\n`);
+
+        // Scan + diff against the snapshot fingerprint
+        process.stdout.write(`     ${DIM("Scanning for changes...")}`);
+        const context = await scanContext(targetDir);
+        const diff = diffFingerprint(snapshot.files, context);
+        process.stdout.write(` ${SUCCESS("✓")}\n`);
+
+        if (!hasChanges(diff)) {
+          process.stdout.write(`\n     ${SUCCESS("✓")} ${DIM(`Docs already up to date — nothing changed since ${snapshot.generatedAt}.`)}\n\n`);
+          return;
+        }
+        process.stdout.write(
+          `     ${DIM(`${diff.added.length} added · ${diff.modified.length} modified · ${diff.deleted.length} removed`)}\n`,
+        );
+
+        // Plan which docs to refresh/add — never delete.
+        const gitLog = snapshot.git?.commit ? getGitLog(targetDir, snapshot.git.commit) : null;
+        const planSpinner = new LineSpinner("Deciding what to update...");
+        planSpinner.start();
+        let plan;
+        try {
+          plan = await planSync(buildPlannerDigest(context), diff, snapshot.docs, gitLog, provider, config.model, {
+            onRetry: (attempt, maxRetries, error) => planSpinner.log(formatRetryLine(attempt, maxRetries, error)),
+            onResolved: (p) => planSpinner.succeed(`(${p.regenerate.length} to refresh, ${p.add.length} new)`),
+          });
+        } catch (err) {
+          planSpinner.fail();
+          throw err;
+        }
+
+        const docsToWrite = [...plan.regenerate, ...plan.add];
+        if (docsToWrite.length === 0) {
+          // Advance the baseline so the same changes aren't re-flagged next run.
+          await writeSnapshot(targetDir, { provider: config.provider, model: config.model }, context, snapshot.docs);
+          process.stdout.write(`\n     ${SUCCESS("✓")} ${DIM("Those changes don't affect any docs. Nothing to update.")}\n\n`);
+          return;
+        }
+
+        // Same shared context as genesis, so refreshed docs stay complete and consistent.
+        const ctxSpinner = new LineSpinner("Preparing project context...");
+        ctxSpinner.start();
+        let sharedContext: string;
+        try {
+          sharedContext = await buildSharedProjectContext(context, provider, config.model, {
+            onStart: (batches) => {
+              ctxSpinner.log(`     ${DIM(`This project is large — condensing it in ${batches} parts so nothing is lost.`)}`);
+              ctxSpinner.setLabel(`Distilling project (${batches} chunk${batches > 1 ? "s" : ""})...`);
+            },
+            onBatch: (index, total) => ctxSpinner.setLabel(`Distilling project ${index}/${total}...`),
+          });
+          ctxSpinner.succeed();
+        } catch (err) {
+          ctxSpinner.fail();
+          throw err;
+        }
+
+        // Write the affected subset. Existing files are overwritten with fresh
+        // content; nothing is ever deleted.
+        const runner = new StepRunner("updating docs");
+        for (const doc of docsToWrite) runner.addStep(doc.label);
+        runner.start();
+        const startTime = Date.now();
+        const aetherDir = join(targetDir, ".aether");
+
+        try {
+          await runner.runPooled(genConcurrency(), async (i) => {
+            const doc = docsToWrite[i];
+            const response = await chatWithRetry(provider, {
+              model: config.model,
+              messages: [{ role: "user", content: doc.buildPrompt(sharedContext) }],
+              temperature: 0.3,
+            });
+            runner.setWriting(i);
+            const outputPath = join(aetherDir, doc.outputPath);
+            await mkdir(dirname(outputPath), { recursive: true });
+            await writeFile(outputPath, response.content, "utf-8");
+          });
+        } catch (err) {
+          runner.error(`Failed updating docs: ${formatError(err)}`);
+          return;
+        }
+
+        // Merge doc set, rebuild the index, and snapshot the new point.
+        const mergedDocs = mergeDocMetas(snapshot.docs, plan.add);
+        const indexPath = join(aetherDir, "docs", "README.md");
+        await mkdir(dirname(indexPath), { recursive: true });
+        await writeFile(indexPath, buildDocsIndex(context.name, mergedDocs), "utf-8");
+        await writeSnapshot(targetDir, { provider: config.provider, model: config.model }, context, mergedDocs);
+
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+        runner.finish(`Sync complete in ${elapsed}s — ${plan.regenerate.length} refreshed, ${plan.add.length} added`);
+      } catch (err) {
+        process.stdout.write(`\n\n${chalk.red("  ✗")} ${formatError(err)}\n\n`);
+      }
     },
   });
 
@@ -267,6 +400,19 @@ function showGenesisHelp(): void {
   process.stdout.write(`     ${DIM("won't get api/endpoints.md just because it's in the catalog.\n\n")}`);
   process.stdout.write(`     ${DIM("The planner picks which of the above fit this project, and may add a")}\n`);
   process.stdout.write(`     ${DIM("few extra docs (e.g. a deployment pipeline) if something deserves one.\n\n")}`);
+}
+
+function showSyncHelp(): void {
+  process.stdout.write(`\n${ACCENT("  ⟳ ")}${DIM("aether sync")}\n\n`);
+  process.stdout.write(`     Refresh docs after the project changed — without regenerating everything.\n\n`);
+  process.stdout.write(`     ${DIM("Usage:")}\n`);
+  process.stdout.write(`       /sync              ${DIM("— sync the current directory")}\n`);
+  process.stdout.write(`       /sync <path>       ${DIM("— sync a specific directory")}\n\n`);
+  process.stdout.write(`     ${DIM("How it works:")}\n`);
+  process.stdout.write(`       Diffs the project against the last ${ACCENT("/genesis")} snapshot, then refreshes\n`);
+  process.stdout.write(`       only the docs affected by what changed and adds new ones if needed.\n`);
+  process.stdout.write(`       ${DIM("Existing docs are updated in place — nothing is ever deleted.")}\n\n`);
+  process.stdout.write(`     ${DIM("Run")} /genesis ${DIM("first if there's no snapshot yet.")}\n\n`);
 }
 
 function formatError(err: unknown): string {

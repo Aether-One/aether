@@ -1,187 +1,228 @@
 # Modules Overview
 
-This document covers the modules present in the `aether` project source tree under `src/`, based solely on the provided directory structure and source files.
+This document describes the major modules present in the `src/` directory of the `aether` project, based solely on the provided project context and distilled source facts.
 
-## cli
+## `src/cli`
 
-**Purpose** — Entry point of the Aether CLI. Registers commands and starts the interactive prompt or prints the banner.
+### Purpose
+Entry point for the CLI executable. Parses startup flags, registers commands, and starts the interactive chat loop.
 
-**Key Files**
-- `src/cli/index.ts` — Contains `main()`, which handles `--version`/`-v`, calls `registerHelpCommand()`, `registerBuiltinCommands()`, `registerConfigCommand()`, plays startup animation or prints banner based on TTY/flags, then calls `startChat()`.
+### Key Files
+- `index.ts` — CLI entry (`#!/usr/bin/env node`), calls `main()`; handles `--version`/`-v` and `--no-animation` flags; imports and calls `registerHelpCommand()`, `registerBuiltinCommands()`, `registerConfigCommand()`; uses `process.stdin.isTTY` to choose `playStartupAnimation()` vs `printBanner()`; calls `startChat()` from `../ui/prompt.js`.
 
-**Exports** — No explicit exports; declares `main()` and invokes it. Declares `const VERSION` using `declare const __AETHER_VERSION__`.
+### Exports
+- (No explicit exports listed beyond the executable entry behavior.)
 
-**Dependencies**
-- `../ui/animation.js` (`playStartupAnimation`, `printBanner`)
-- `../ui/prompt.js` (`startChat`)
-- `../commands/help.js` (`registerHelpCommand`)
-- `../commands/builtins.js` (`registerBuiltinCommands`)
-- `../commands/config.js` (`registerConfigCommand`)
+### Dependencies
+- `../ui/animation.js`
+- `../ui/prompt.js`
+- `../commands/help.js`
+- `../commands/builtins.js`
+- `../commands/config.js`
 
-**Flow** — Process starts → `main()` registers commands → checks args/TTY → animation or banner → `startChat()` begins readline loop.
+### Flow
+`main()` registers help/builtin/config commands → decides animation vs banner based on TTY → calls `startChat()` which reads user input and routes `/`-commands via the registry.
 
-## commands
+---
 
-**Purpose** — Implements CLI command registration and built-in commands (`genesis`, `sync`, `exit`, `clear`, `config`, `help`).
+## `src/commands`
 
-**Key Files**
-- `src/commands/registry.ts` — Defines `Command` interface and `CommandRegistry` class with `register`, `get`, `getAll`, `has`, `execute` (case-insensitive name match, lowercase). Exports `registry` instance.
-- `src/commands/builtins.ts` — Registers `genesis` (calls `scanContext`, `buildPrompt`, `planDocs`, `StepRunner`, writes `.aether/docs`), `sync` (stub), `exit`, `clear`. Exports `registerBuiltinCommands()`.
-- `src/commands/config.ts` — Registers `config` command for provider setup. Exports `registerConfigCommand()`.
-- `src/commands/help.ts` — Registers `help` command listing all commands. Exports `registerHelpCommand()`.
+### Purpose
+Implements CLI command registration and handlers (`/help`, `/config`, `/genesis`, `/sync`, `/exit`, `/clear`).
 
-**Exports**
-- `registry` (registry.ts)
-- `registerBuiltinCommands` (builtins.ts)
-- `registerConfigCommand` (config.ts)
-- `registerHelpCommand` (help.ts)
-- `Command` interface (registry.ts)
+### Key Files
+- `registry.ts` — Defines `Command` interface and `CommandRegistry` class (`register`, `get`, `getAll`, `has`, `execute`); exports `const registry`.
+- `help.ts` — `registerHelpCommand()` lists all commands from `registry.getAll()`.
+- `config.ts` — `registerConfigCommand()` handles `/config` provider/model/url/key setting and validation.
+- `builtins.ts` — `registerBuiltinCommands()` registers `genesis`, `sync`, `exit`, `clear`; orchestrates scanning, planning, doc generation.
 
-**Dependencies**
+### Exports
+- `registry` (from `registry.ts`)
+- `registerHelpCommand` (from `help.ts`)
+- `registerConfigCommand` (from `config.ts`)
+- `registerBuiltinCommands` (from `builtins.ts`)
+
+### Dependencies
 - `./registry.js` (all command files)
-- `../config/index.js` (builtins, config)
-- `../providers/factory.js`, `../providers/retry.js` (builtins)
-- `../genesis/context.js`, `../genesis/planner.js`, `../genesis/docs.js` (builtins)
-- `../ui/steps.js` (builtins)
-- `../prompts/index.js` (docs via genesis)
-- `node:fs/promises`, `node:fs`, `node:path` (builtins, config)
+- `../config/index.js` (`config.ts`, `builtins.ts`)
+- `../providers/factory.js`, `../providers/retry.js` (`builtins.ts`)
+- `../genesis/context.js`, `../genesis/digest.js`, `../genesis/planner.js`, `../genesis/scope.js`, `../genesis/docs.js`, `../genesis/fingerprint.js`, `../genesis/sync.js` (`builtins.ts`)
+- `../ui/steps.js` (`builtins.ts`)
 - `chalk` (all)
 
-**Flow** — Commands registered into `registry` at startup → user input matched via `registry.execute()` → handler runs (e.g. `genesis` scans, plans, generates).
+### Flow
+User input → `registry.execute()` → matches `/command` → calls handler. `builtins.ts` handlers load config, create provider, scan context, plan docs, build context, generate and write docs.
 
-## config
+---
 
-**Purpose** — Defines and persists Aether configuration (provider, model, baseUrl, apiKey).
+## `src/config`
 
-**Key Files**
-- `src/config/index.ts` — Defines `AetherConfig` interface, `DEFAULT_CONFIGS` for openai/anthropic/gemini/openrouter, `getDefaultConfig()`, `detectProviderFromBaseUrl()`, `getConfigPath()`, `loadConfig()`, `saveConfig()`, `validateConfig()`.
+### Purpose
+Manages Aether configuration loading/saving and `.aether` scaffold creation.
 
-**Exports** — `AetherConfig` (type), `getDefaultConfig`, `detectProviderFromBaseUrl`, `getConfigPath`, `loadConfig`, `saveConfig`, `validateConfig`.
+### Key Files
+- `index.ts` — `AetherConfig` interface; `DEFAULT_CONFIGS`; `getDefaultConfig`; `detectProviderFromBaseUrl`; `loadConfig`/`saveConfig`; `validateConfig`; settings path helpers.
+- `scaffold.ts` — `ensureAetherScaffold(rootDir)` writes `.gitignore` entry and `.aether/README.md`.
 
-**Dependencies**
-- `node:fs/promises` (`readFile`, `writeFile`, `mkdir`)
-- `node:fs` (`existsSync`)
-- `node:path` (`join`)
+### Exports
+- `interface AetherConfig`
+- `DEFAULT_CONFIGS`, `getDefaultConfig`, `PROVIDER_HOSTS`, `detectProviderFromBaseUrl`, `getSettingsDir`, `getConfigPath`, `getLegacyConfigPath`, `loadConfig`, `saveConfig`, `validateConfig` (from `index.ts`)
+- `ensureAetherScaffold` (from `scaffold.ts`)
 
-**Flow** — Config read from `.aether/config.json` via `loadConfig` → modified via `saveConfig` → `detectProviderFromBaseUrl` re-syncs provider on URL change.
+### Dependencies
+- `./scaffold.js` (from `index.ts`)
+- `node:fs/promises`, `node:fs`, `node:path`
 
-## genesis
+### Flow
+`saveConfig` writes JSON and calls `ensureAetherScaffold` → creates `.aether/settings` and README. `loadConfig` reads from settings or legacy path.
 
-**Purpose** — Scans target project, builds prompt context, plans docs via AI, and defines doc catalog.
+---
 
-**Key Files**
-- `src/genesis/context.ts` — `scanContext()` reads config/vision/entry/source files within `MAX_TOTAL_CHARS` (300k), `buildPrompt()` assembles context string. Defines `ProjectContext` interface.
-- `src/genesis/planner.ts` — `planDocs()` calls LLM with `PLANNER_PROMPT`, parses response, always includes `CORE_IDS`, builds custom docs. Exports `planDocs`.
-- `src/genesis/docs.ts` — `DOC_DEFINITIONS` array, `buildCustomDocDefinition()`, `buildDocsIndex()`, `DocDefinition`/`CustomDocSpec` types, `SECTION_ORDER`.
+## `src/genesis`
 
-**Exports**
-- `scanContext`, `buildPrompt`, `ProjectContext` (context.ts)
-- `planDocs` (planner.ts)
-- `DOC_DEFINITIONS`, `buildCustomDocDefinition`, `buildDocsIndex`, `DocDefinition`, `CustomDocSpec`, `SECTION_ORDER`, `DocSection` (docs.ts)
+### Purpose
+Core analysis and documentation generation: scans project, builds context, distills, plans docs, writes outputs.
 
-**Dependencies**
-- `node:fs/promises`, `node:fs`, `node:path` (context.ts)
-- `../providers/types.js`, `../providers/retry.js` (planner.ts)
-- `../prompts/index.js` (planner.ts, docs.ts)
-- `./docs.js` (planner.ts)
+### Key Files
+- `context.ts` — `ProjectContext` interface; `scanContext()` walks files; `buildPrompt()`.
+- `digest.ts` — `buildPlannerDigest()`; signal detection and symbol extraction.
+- `fingerprint.ts` — `buildFingerprint()` (sha256); `getGitInfo()`, `getGitLog()`.
+- `scope.ts` — `buildSharedProjectContext()` with budget/distill fallback.
+- `distill.ts` — `distillFiles()` via LLM; `mapPool` concurrency; chunking.
+- `planner.ts` — `planDocs()`; `parsePlan()`; `extractJsonArray()`.
+- `docs.ts` — `DOC_DEFINITIONS`; `buildCustomDocDefinition`; `buildDocsIndex`.
+- `sync.ts` — (referenced by `builtins.ts` for `diffFingerprint`, `hasChanges`, `loadSnapshot`, `planSync`, `mergeDocMetas`; not detailed in facts but file exists.)
 
-**Flow** — `scanContext` → `buildPrompt` → `planDocs` (LLM) → returns `DocDefinition[]` → builtins writes files using `buildPrompt` per doc + `buildDocsIndex`.
+### Exports
+- `ProjectContext`, `scanContext`, `buildPrompt` (`context.ts`)
+- `buildPlannerDigest` (`digest.ts`)
+- `buildFingerprint`, `getGitInfo`, `getGitLog` (`fingerprint.ts`)
+- `buildSharedProjectContext` (`scope.ts`)
+- `distillFiles`, `DistillHooks`, `FileContent` (`distill.ts`)
+- `planDocs`, `ParsedPlan`, `parsePlan`, `extractJsonArray` (`planner.ts`)
+- `DOC_DEFINITIONS`, `DocDefinition`, `buildCustomDocDefinition`, `buildDocsIndex`, `DocSection`, `SECTION_ORDER` (`docs.ts`)
 
-## prompts
+### Dependencies
+- `../config/index.js` (`factory` usage in builtins)
+- `../providers/types.js`, `../providers/factory.js`, `../providers/retry.js`
+- `../prompts/index.js` (`docs.ts`, `planner.ts`)
+- `../ui/steps.js` (`builtins.ts`)
+- `node:fs`, `node:path`, `node:crypto`, `node:child_process`
 
-**Purpose** — Stores all LLM prompt strings and custom-doc builder used during generation.
+### Flow
+`scanContext` → `buildPrompt`/`buildPlannerDigest` → `planDocs` (LLM) → `buildSharedProjectContext` (distill if over budget) → `DOC_DEFINITIONS` prompts → `chatWithRetry` → write files + `buildDocsIndex`.
 
-**Key Files**
-- `src/prompts/base.ts` — `BASE_PROMPT`, `PROMPT_SUFFIX` (anti-hallucination rules).
-- `src/prompts/planner.ts` — `PLANNER_PROMPT` (JSON array schema).
-- `src/prompts/custom-doc.ts` — `buildCustomDocPrompt(title, focus)`.
-- `src/prompts/index.ts` — Re-exports all prompt constants and `buildCustomDocPrompt`.
-- Individual prompt files: `ai-context.ts`, `api.ts`, `business.ts`, `coding-standards.ts`, `contributing.ts`, `diagrams.ts`, `folder-structure.ts`, `getting-started.ts`, `glossary.ts`, `modules.ts`, `onboarding.ts`, `system-overview.ts`, `tech-stack.ts`.
+---
 
-**Exports** — All `*_PROMPT` constants, `buildCustomDocPrompt`, via `index.ts`.
+## `src/prompts`
 
-**Dependencies** — None (self-contained string exports).
+### Purpose
+Holds all prompt templates and builders used for LLM documentation generation.
 
-**Flow** — Imported by `genesis/docs.ts` and `genesis/planner.ts`; concatenated with context in `withBase()`.
+### Key Files
+- `base.ts` — `BASE_PROMPT`, `PROMPT_SUFFIX`, `HUMAN_BASE_PROMPT`, `HUMAN_PROMPT_SUFFIX`.
+- `index.ts` — Re-exports all prompt constants and `buildCustomDocPrompt`.
+- `planner.ts` — `PLANNER_PROMPT` (doc ID catalog).
+- `custom-doc.ts` — `buildCustomDocPrompt(title, focus)`.
+- Individual files: `ai-context.ts`, `api.ts`, `business.ts`, `coding-standards.ts`, `contributing.ts`, `diagrams.ts`, `folder-structure.ts`, `getting-started.ts`, `glossary.ts`, `modules.ts`, `onboarding.ts`, `sync.ts`, `system-overview.ts`, `tech-stack.ts` — each exports a prompt string.
 
-## providers
+### Exports
+- All `*_PROMPT` constants and `buildCustomDocPrompt` (via `index.ts`)
 
-**Purpose** — Abstracts LLM communication via OpenAI-compatible API.
+### Dependencies
+- None beyond internal files.
 
-**Key Files**
-- `src/providers/types.ts` — `LLMProvider` interface, `ChatMessage`, `ChatRequest`, `ChatResponse`, `StreamChunk`.
-- `src/providers/openai-compatible.ts` — `OpenAICompatibleProvider` class implementing `chat`, `chatStream`, `ping` via `fetch` to `/chat/completions` and `/models`.
-- `src/providers/factory.ts` — `createProvider(config)` returns `OpenAICompatibleProvider` for all provider types.
-- `src/providers/retry.ts` — `chatWithRetry()`, `createRetryLogger()` with exponential backoff.
-- `src/providers/index.ts` — Re-exports types, `OpenAICompatibleProvider`, `createProvider`.
+### Flow
+`docs.ts` and `planner.ts` import prompts → embed in LLM messages.
 
-**Exports**
-- `LLMProvider`, `ChatMessage`, `ChatRequest`, `ChatResponse`, `StreamChunk` (types.ts)
-- `OpenAICompatibleProvider` (openai-compatible.ts)
-- `createProvider` (factory.ts)
-- `chatWithRetry`, `createRetryLogger`, `RetryOptions` (retry.ts)
+---
 
-**Dependencies**
-- `../config/index.js` (factory.ts)
-- `./types.js` (all)
-- `chalk` (retry.ts)
+## `src/providers`
 
-**Flow** — `createProvider` → `OpenAICompatibleProvider` instance → `ping()` health check → `chatWithRetry` wraps `chat()` in builtins genesis flow.
+### Purpose
+Abstraction over LLM providers (OpenAI-compatible) with retry support.
 
-## ui
+### Key Files
+- `types.ts` — `ChatMessage`, `ChatRequest`, `ChatResponse`, `StreamChunk`, `LLMProvider`.
+- `openai-compatible.ts` — `OpenAICompatibleProvider` class (chat, chatStream, ping, SSE).
+- `factory.ts` — `createProvider(config)` returns provider by name.
+- `retry.ts` — `chatWithRetry`, `RetryOptions`, `createRetryLogger`.
+- `index.ts` — Re-exports types, `OpenAICompatibleProvider`, `createProvider`.
 
-**Purpose** — Terminal UI: startup animation, interactive prompt, step runner.
+### Exports
+- `LLMProvider`, `ChatMessage`, `ChatRequest`, `ChatResponse`, `StreamChunk` (`types.ts`)
+- `OpenAICompatibleProvider` (`openai-compatible.ts`)
+- `createProvider` (`factory.ts`)
+- `chatWithRetry`, `RetryOptions`, `formatRetryLine`, `createRetryLogger` (`retry.ts`)
 
-**Key Files**
-- `src/ui/animation.ts` — `playStartupAnimation()`, `printBanner()` using `chalk` and `setTimeout`.
-- `src/ui/prompt.ts` — `startChat()` readline interface with autocomplete dropdown, `completer`, `respond()` for non-command input.
-- `src/ui/steps.ts` — `StepRunner` class with `addStep`, `start`, `runStep`, `setWriting`, `finish`, `error`, ANSI rendering.
+### Dependencies
+- `../config/index.js` (`factory.ts`)
+- `chalk` (`retry.ts`)
 
-**Exports**
-- `playStartupAnimation`, `printBanner` (animation.ts)
-- `startChat` (prompt.ts)
-- `StepRunner`, `Step` (steps.ts)
+### Flow
+`createProvider(config)` → `OpenAICompatibleProvider` → `chatWithRetry` wraps `provider.chat` with backoff.
 
-**Dependencies**
+---
+
+## `src/ui`
+
+### Purpose
+Terminal UI: startup animation, banners, interactive chat, step spinners.
+
+### Key Files
+- `animation.ts` — `playStartupAnimation()`, `printBanner()`.
+- `prompt.ts` — `startChat()`; dropdown, completer, `respond()`.
+- `steps.ts` — `StepRunner`, `LineSpinner`, `Step` interface.
+
+### Exports
+- `playStartupAnimation`, `printBanner` (`animation.ts`)
+- `startChat` (`prompt.ts`)
+- `StepRunner`, `LineSpinner`, `Step` (`steps.ts`)
+
+### Dependencies
+- `../commands/registry.js` (`prompt.ts`)
 - `chalk` (all)
-- `../commands/registry.js` (prompt.ts)
-- `../commands/registry.js` (`Command` type, prompt.ts)
 
-**Flow** — `startChat` loops `rl.question` → `registry.execute` for `/` commands → `StepRunner` visualizes genesis doc generation.
+### Flow
+CLI calls animation or banner → `startChat` loops readline → registry executes commands → `StepRunner`/`LineSpinner` show progress during genesis/sync.
+
+---
+
+## `scripts`
+
+### Purpose
+Build tooling for single-executable artifact (SEA).
+
+### Key Files
+- `build-sea.mjs` — Referenced by `package.json` `build:sea` script (`node scripts/build-sea.mjs`). No internal details provided.
+
+### Exports
+- Not detected from provided context.
+
+### Dependencies
+- Not detected from provided context.
+
+### Flow
+Not detected from provided context.
+
+---
 
 ## Dependency Map
 
 ```mermaid
 graph TD
-  cli[cli/index.ts] --> ui_anim[ui/animation.ts]
-  cli --> ui_prompt[ui/prompt.ts]
-  cli --> cmd_help[commands/help.ts]
-  cli --> cmd_builtins[commands/builtins.ts]
-  cli --> cmd_config[commands/config.ts]
-
-  cmd_builtins --> cmd_registry[commands/registry.ts]
-  cmd_builtins --> config[config/index.ts]
-  cmd_builtins --> providers_factory[providers/factory.ts]
-  cmd_builtins --> providers_retry[providers/retry.ts]
-  cmd_builtins --> genesis_context[genesis/context.ts]
-  cmd_builtins --> genesis_planner[genesis/planner.ts]
-  cmd_builtins --> genesis_docs[genesis/docs.ts]
-  cmd_builtins --> ui_steps[ui/steps.ts]
-
-  cmd_config --> cmd_registry
-  cmd_config --> config
-  cmd_help --> cmd_registry
-
-  genesis_planner --> providers_types[providers/types.ts]
-  genesis_planner --> providers_retry
-  genesis_planner --> genesis_docs
-  genesis_planner --> prompts[prompts/index.ts]
-
-  genesis_docs --> prompts
-  providers_factory --> config
-  providers_factory --> providers_openai[providers/openai-compatible.ts]
-  providers_openai --> providers_types
-  providers_retry --> providers_types
-
-  ui_prompt --> cmd_registry
+    cli[index.ts] --> commands[commands/*]
+    cli --> ui_anim[ui/animation.ts]
+    cli --> ui_prompt[ui/prompt.ts]
+    commands --> config[config/*]
+    commands --> providers[providers/*]
+    commands --> genesis[genesis/*]
+    commands --> ui_steps[ui/steps.ts]
+    genesis --> providers
+    genesis --> prompts[prompts/*]
+    genesis --> config
+    providers --> config
+    ui_prompt --> commands
 ```
+
+All edges above are verified by import statements listed in the distilled source facts (e.g., `builtins.ts` imports `../config/index.js`, `../providers/factory.js`, `../genesis/context.js`, `../ui/steps.js`).

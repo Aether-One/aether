@@ -1,54 +1,55 @@
 # System Overview
 
 ## Goal
-
-Aether is an open-source TypeScript CLI that transforms any codebase into an AI-native workspace by analyzing a repository and generating a knowledge base (documentation) using LLM providers via an OpenAI-compatible API.
+Aether is a CLI tool (bin: `aether` → `./dist/cli/index.js`) that transforms a codebase into an AI-native workspace by scanning the repository and generating documentation via static analysis and optional LLM providers. Its description in `package.json` is "Transform any codebase into an AI-native workspace."
 
 ## Architecture
+The project is a Node.js CLI application written in TypeScript. No frontend, database, or network server components are present in the provided context. The runtime flow is:
 
-The project is a Node.js CLI application (ESM, TypeScript). No frontend, database, or persistent storage backend is present in the code. The relevant architectural layers evidenced in the source are:
-
-- **CLI entry & interactive prompt** — `src/cli/index.ts` registers commands and starts `startChat()` from `src/ui/prompt.ts`.
-- **Command system** — `src/commands/registry.ts` defines `CommandRegistry` (case-insensitive lookup via `execute()`); builtins and config/help commands register themselves.
-- **Configuration** — `src/config/index.ts` loads/saves `.aether/config.json` (`AetherConfig` with `provider`, `model`, `baseUrl`, `apiKey`).
-- **Provider layer** — `src/providers/` exposes `LLMProvider` interface, `OpenAICompatibleProvider` (used for all providers including anthropic via TODO note), and `createProvider()` factory.
-- **Genesis pipeline** — `src/genesis/context.ts` (`scanContext`, `buildPrompt`), `src/genesis/planner.ts` (`planDocs`), `src/genesis/docs.ts` (`DOC_DEFINITIONS`, `buildCustomDocDefinition`, `buildDocsIndex`).
-- **Prompts** — `src/prompts/` contains `BASE_PROMPT`, `PROMPT_SUFFIX`, and per-doc prompts (e.g. `SYSTEM_OVERVIEW_PROMPT`, `PLANNER_PROMPT`).
-- **UI** — `src/ui/animation.ts` (startup banner), `src/ui/steps.ts` (`StepRunner` with ANSI states), `src/ui/prompt.ts` (readline interface with dropdown).
+- `src/cli/index.ts` is the entry point (`#!/usr/bin/env node`), parses flags (`--version`, `-v`, `--no-animation`), registers commands, and starts a chat loop.
+- Command implementations live in `src/commands/` and are registered in a `CommandRegistry` (`src/commands/registry.ts`).
+- `genesis` and `sync` commands (`src/commands/builtins.ts`) orchestrate project analysis using modules in `src/genesis/`.
+- LLM access is abstracted via `src/providers/` (OpenAI-compatible HTTP calls).
+- User interaction uses `src/ui/` (readline chat, animation, step rendering).
 
 ## System Components
-
-| Component | File(s) | Role |
-|-----------|---------|------|
-| CLI entry | `src/cli/index.ts` | Parses `--version`/`--no-animation`, registers commands, starts prompt or prints banner |
-| Command registry | `src/commands/registry.ts` | Stores commands in a `Map`, resolves by lowercased name, executes handlers |
-| Builtin commands | `src/commands/builtins.ts` | Implements `/genesis`, `/sync` (stub), `/exit`, `/clear` |
-| Config command | `src/commands/config.ts` | Implements `/config` (quick setup, `set`, `show`, help) |
-| Help command | `src/commands/help.ts` | Implements `/help` listing registered commands |
-| Config model | `src/config/index.ts` | `AetherConfig` type, `loadConfig`/`saveConfig`/`validateConfig`, `detectProviderFromBaseUrl` |
-| Provider interface | `src/providers/types.ts` | `LLMProvider` with `chat`, `chatStream`, `ping` |
-| OpenAI-compatible provider | `src/providers/openai-compatible.ts` | `fetch` to `/chat/completions` and `/models`, Bearer auth |
-| Provider factory | `src/providers/factory.ts` | `createProvider()` returns `OpenAICompatibleProvider` per config |
-| Retry wrapper | `src/providers/retry.ts` | `chatWithRetry` (3 retries, exponential backoff), `createRetryLogger` |
-| Context scanner | `src/genesis/context.ts` | `scanContext()` reads config/vision/entry/source files; `buildPrompt()` assembles context string |
-| Planner | `src/genesis/planner.ts` | `planDocs()` calls LLM with `PLANNER_PROMPT`, parses JSON array, enforces `CORE_IDS` |
-| Doc catalog | `src/genesis/docs.ts` | `DOC_DEFINITIONS`, `buildCustomDocDefinition`, `buildDocsIndex` |
-| Prompts | `src/prompts/*.ts` | Exported prompt constants and `buildCustomDocPrompt` |
-| UI animation | `src/ui/animation.ts` | `playStartupAnimation`, `printBanner` |
-| Step runner | `src/ui/steps.ts` | `StepRunner` class rendering `○ ⠹ ✎ ✓ ✗` states |
-| Interactive prompt | `src/ui/prompt.ts` | `startChat()` readline loop, tab completion, dropdown, `respond()` |
+- **`src/cli/index.ts`** — CLI entry point; handles `--version`/`-v`/`--no-animation`, calls `registerHelpCommand()`, `registerBuiltinCommands()`, `registerConfigCommand()`, and `startChat()`.
+- **`src/commands/registry.ts`** — Defines `Command` interface and `CommandRegistry` class with `register`, `get`, `getAll`, `has`, `execute`; exports `const registry`.
+- **`src/commands/help.ts`** — `registerHelpCommand()` lists all commands from `registry.getAll()`.
+- **`src/commands/config.ts`** — `registerConfigCommand()` handles `/config` for provider/model/url/key via `loadConfig`/`saveConfig`/`validateConfig`.
+- **`src/commands/builtins.ts`** — Registers `genesis`, `sync`, `exit`, `clear`; `genesis` runs `scanContext`, `planDocs`, `buildSharedProjectContext`, doc writing; `sync` uses `loadSnapshot` and `diffFingerprint`.
+- **`src/config/index.ts`** — `AetherConfig` interface, `DEFAULT_CONFIGS`, `loadConfig`, `saveConfig`, `validateConfig`, `detectProviderFromBaseUrl`.
+- **`src/config/scaffold.ts`** — `ensureAetherScaffold()` writes `.gitignore` entry and `.aether/README.md`.
+- **`src/genesis/context.ts`** — `scanContext()` builds `ProjectContext` (config/vision/entry/source files, directory tree, omitted files).
+- **`src/genesis/digest.ts`** — `buildPlannerDigest()` extracts signals/symbols for planning.
+- **`src/genesis/distill.ts`** — `distillFiles()` uses LLM to compress files under budget via `chatWithRetry`.
+- **`src/genesis/docs.ts`** — `DOC_DEFINITIONS` array of 13 `DocDefinition`s; `buildDocsIndex()` groups by section.
+- **`src/genesis/fingerprint.ts`** — `buildFingerprint()` (sha256 per file), `getGitInfo()`, `getGitLog()`.
+- **`src/genesis/planner.ts`** — `planDocs()` calls LLM with `PLANNER_PROMPT`, parses JSON plan, falls back to `CORE_IDS`.
+- **`src/genesis/scope.ts`** — `buildSharedProjectContext()` respects `DOC_CONTEXT_BUDGET` (env `AETHER_DOC_CONTEXT_CHARS`, default 48_000).
+- **`src/genesis/sync.ts`** — Referenced by `builtins.ts` for `sync` (uses `diffFingerprint`, `mergeDocMetas`, `loadSnapshot`).
+- **`src/prompts/`** — Multiple modules exporting prompt strings (`BASE_PROMPT`, `PLANNER_PROMPT`, `GETTING_STARTED_PROMPT`, etc.) re-exported via `src/prompts/index.ts`.
+- **`src/providers/types.ts`** — `LLMProvider`, `ChatMessage`, `ChatRequest`, `ChatResponse`, `StreamChunk` interfaces.
+- **`src/providers/openai-compatible.ts`** — `OpenAICompatibleProvider` POSTs to `${baseUrl}/chat/completions` and GETs `${baseUrl}/models`.
+- **`src/providers/factory.ts`** — `createProvider()` returns `OpenAICompatibleProvider` for `openai`/`gemini`/`anthropic`/`openrouter`.
+- **`src/providers/retry.ts`** — `chatWithRetry()` with exponential backoff; `createRetryLogger()`.
+- **`src/ui/animation.ts`** — `playStartupAnimation()` / `printBanner()` using `chalk`.
+- **`src/ui/prompt.ts`** — `startChat()` readline loop with command dropdown and `completer`.
+- **`src/ui/steps.ts`** — `StepRunner` and `LineSpinner` for progress display.
+- **`scripts/build-sea.mjs`** — Referenced by `build:sea` npm script; not detailed in context.
 
 ## Communication Patterns
-
-- The CLI process communicates with external LLM APIs over HTTPS using `fetch` in `src/providers/openai-compatible.ts` (`/chat/completions` POST, `/models` GET).
-- Internal communication is direct function calls: `src/commands/builtins.ts` calls `loadConfig`, `createProvider`, `scanContext`, `planDocs`, `chatWithRetry`, `StepRunner` methods, and `buildDocsIndex`.
-- The interactive prompt (`src/ui/prompt.ts`) dispatches input to `registry.execute()` which invokes the matched command handler.
-- No REST/WebSocket/event-bus internal protocols are present in the code.
+- CLI commands communicate in-process by calling registered handler functions via `registry.execute()` (`src/commands/registry.ts`).
+- `genesis`/`sync` commands call `src/genesis/*` functions directly (e.g., `scanContext`, `planDocs`, `buildSharedProjectContext`).
+- LLM communication: `OpenAICompatibleProvider` (`src/providers/openai-compatible.ts`) makes HTTP POST to `${baseUrl}/chat/completions` (SSE stream) and GET to `${baseUrl}/models` for `ping()`. Retries handled by `chatWithRetry` in `src/providers/retry.ts`.
+- No REST/WebSocket/event-bus between internal components beyond direct function calls and LLM HTTP requests.
 
 ## Authentication & Authorization
-
-`OpenAICompatibleProvider` sends `Authorization: Bearer <apiKey>` on every request (`src/providers/openai-compatible.ts`). The `apiKey` is stored in `.aether/config.json` via `saveConfig` (`src/config/index.ts`). No user-level authorization or role system exists in the code.
+- LLM provider auth uses an API key passed as `apiKey` in `AetherConfig` (`src/config/index.ts`) and sent in HTTP requests by `OpenAICompatibleProvider` (constructor stores `apiKey`, used in POST headers). `validateConfig()` requires `apiKey` for saved configs.
+- No user/auth system for the CLI itself is present.
 
 ## Deployment
-
-Not detected from provided context. No Dockerfile, CI config, or deployment script is present in the listed project files (the `scripts/build-sea.mjs` file is listed in the directory tree but its contents are not provided, so its purpose is not verifiable). `package.json` defines `bin: { "aether": "./dist/cli/index.js" }` and a `build` script (`tsc`), indicating compilation to `dist/` via TypeScript, but no deployment target or runtime hosting is evidenced.
+- `package.json` defines `bin: { "aether": "./dist/cli/index.js" }` and `scripts.build: "tsc"` (compiles `src/` to `dist/` per `tsconfig.json` `outDir`).
+- `build:sea` script runs `node scripts/build-sea.mjs` (using `esbuild` and `postject` devDependencies) but the script content is not provided.
+- `engines.node` requires `>=20.0.0`.
+- No container, cloud, or CI deployment config is present in the provided context.

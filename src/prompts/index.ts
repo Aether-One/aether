@@ -13,4 +13,5 @@ export { DIAGRAMS_PROMPT } from "./diagrams.js";
 export { AI_CONTEXT_PROMPT } from "./ai-context.js";
 export { GLOSSARY_PROMPT } from "./glossary.js";
 export { PLANNER_PROMPT } from "./planner.js";
+export { SYNC_PLANNER_PROMPT } from "./sync.js";
 export { buildCustomDocPrompt } from "./custom-doc.js";

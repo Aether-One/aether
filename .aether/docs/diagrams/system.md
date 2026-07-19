@@ -1,83 +1,145 @@
-# System Diagrams — aether
+# System Diagrams
 
-Diagrams below use only modules/files verifiable in the provided project context (`src/cli/index.ts`, `src/commands/*`, `src/config/index.ts`, `src/genesis/*`, `src/providers/*`, `src/prompts/*`, `src/ui/*`).
+The following diagrams are derived strictly from the files and relationships present in the provided project context (aether v0.1.3).
 
-## Component Diagram
+## 1. Component Diagram
+
+Shows the main modules/packages and their import relationships as verified in the distilled source facts.
 
 ```mermaid
 graph TD
-  cli["src/cli/index.ts"]
-  commands["src/commands/registry.ts, builtins.ts, config.ts, help.ts"]
-  config["src/config/index.ts"]
-  genesis["src/genesis/context.ts, planner.ts, docs.ts"]
-  providers["src/providers/factory.ts, openai-compatible.ts, retry.ts, types.ts"]
-  prompts["src/prompts/index.ts + individual prompt files"]
-  ui["src/ui/animation.ts, prompt.ts, steps.ts"]
+    CLI["src/cli/index.ts"]
+    UI_PROMPT["src/ui/prompt.ts"]
+    UI_ANIM["src/ui/animation.ts"]
+    CMD_HELP["src/commands/help.ts"]
+    CMD_BUILT["src/commands/builtins.ts"]
+    CMD_CONFIG["src/commands/config.ts"]
+    CMD_REG["src/commands/registry.ts"]
+    CFG["src/config/index.ts"]
+    SCAFFOLD["src/config/scaffold.ts"]
+    PROV_IDX["src/providers/index.ts"]
+    PROV_FACT["src/providers/factory.ts"]
+    PROV_OAI["src/providers/openai-compatible.ts"]
+    PROV_TYPES["src/providers/types.ts"]
+    PROV_RETRY["src/providers/retry.ts"]
+    GEN_CTX["src/genesis/context.ts"]
+    GEN_DIG["src/genesis/digest.ts"]
+    GEN_PLAN["src/genesis/planner.ts"]
+    GEN_SCOPE["src/genesis/scope.ts"]
+    GEN_DOCS["src/genesis/docs.ts"]
+    GEN_FP["src/genesis/fingerprint.ts"]
+    GEN_SYNC["src/genesis/sync.ts"]
+    GEN_DIGEST["src/genesis/digest.ts"]
+    PROMPTS["src/prompts/index.ts"]
 
-  cli --> commands
-  cli --> ui
-  commands --> config
-  commands --> genesis
-  commands --> providers
-  genesis --> prompts
-  genesis --> providers
-  providers --> prompts
-  ui --> commands
+    CLI --> UI_PROMPT
+    CLI --> UI_ANIM
+    CLI --> CMD_HELP
+    CLI --> CMD_BUILT
+    CLI --> CMD_CONFIG
+    CMD_HELP --> CMD_REG
+    CMD_CONFIG --> CMD_REG
+    CMD_CONFIG --> CFG
+    CMD_BUILT --> CMD_REG
+    CMD_BUILT --> CFG
+    CMD_BUILT --> PROV_FACT
+    CMD_BUILT --> PROV_RETRY
+    CMD_BUILT --> GEN_CTX
+    CMD_BUILT --> GEN_DIGEST
+    CMD_BUILT --> GEN_PLAN
+    CMD_BUILT --> GEN_SCOPE
+    CMD_BUILT --> GEN_DOCS
+    CMD_BUILT --> GEN_FP
+    CMD_BUILT --> GEN_SYNC
+    CFG --> SCAFFOLD
+    PROV_FACT --> PROV_OAI
+    PROV_FACT --> PROV_TYPES
+    PROV_IDX --> PROV_OAI
+    PROV_IDX --> PROV_FACT
+    PROV_IDX --> PROV_TYPES
+    PROV_RETRY --> PROV_TYPES
+    GEN_SCOPE --> GEN_CTX
+    GEN_SCOPE --> PROV_TYPES
+    GEN_SCOPE --> GEN_DIG
+    GEN_DIG --> PROV_TYPES
+    GEN_DIG --> PROV_RETRY
+    GEN_PLAN --> PROV_TYPES
+    GEN_PLAN --> PROV_RETRY
+    GEN_PLAN --> GEN_DOCS
+    GEN_PLAN --> PROMPTS
+    GEN_DOCS --> PROMPTS
 ```
 
-## Data Flow Diagram
+## 2. Data Flow Diagram
+
+Illustrates the flow of project data during the `/genesis` command as implemented in `src/commands/builtins.ts` and supporting genesis modules.
 
 ```mermaid
 flowchart LR
-  user["User input (stdin)"] --> prompt["src/ui/prompt.ts"]
-  prompt --> registry["src/commands/registry.ts"]
-  registry --> builtins["/genesis handler in src/commands/builtins.ts"]
-  builtins --> config["loadConfig (src/config/index.ts)"]
-  builtins --> provider["createProvider (src/providers/factory.ts)"]
-  builtins --> scan["scanContext (src/genesis/context.ts)"]
-  scan --> buildprompt["buildPrompt (src/genesis/context.ts)"]
-  buildprompt --> planner["planDocs (src/genesis/planner.ts)"]
-  planner --> providerCall["chatWithRetry (src/providers/retry.ts)"]
-  providerCall --> openai["OpenAICompatibleProvider (src/providers/openai-compatible.ts)"]
-  planner --> docs["DOC_DEFINITIONS / buildCustomDocDefinition (src/genesis/docs.ts)"]
-  docs --> writeFile["writeFile to .aether/docs/"]
+    FS[(Filesystem: repo files)]
+    CTX["scanContext (genesis/context.ts)"]
+    PROJ["ProjectContext"]
+    DIG["buildPlannerDigest (genesis/digest.ts)"]
+    PLAN["planDocs (genesis/planner.ts)"]
+    PROV["OpenAICompatibleProvider (providers/openai-compatible.ts)"]
+    SCOPE["buildSharedProjectContext (genesis/scope.ts)"]
+    DIST["distillFiles (genesis/distill.ts)"]
+    DOCS["DOC_DEFINITIONS / buildDocsIndex (genesis/docs.ts)"]
+    OUT[(".aether/docs/*.md")]
+
+    FS --> CTX
+    CTX --> PROJ
+    PROJ --> DIG
+    DIG --> PLAN
+    PLAN --> PROV
+    PROV --> PLAN
+    PLAN --> SCOPE
+    SCOPE --> DIST
+    DIST --> PROV
+    PROV --> DIST
+    SCOPE --> DOCS
+    DOCS --> OUT
 ```
 
-## Sequence Diagram — `/genesis` flow
+## 3. Sequence Diagram
+
+Key flow: user invokes `/genesis` from the CLI chat, triggering analysis and documentation generation.
 
 ```mermaid
 sequenceDiagram
-  participant U as User
-  participant P as src/ui/prompt.ts
-  participant R as src/commands/registry.ts
-  participant B as /genesis (src/commands/builtins.ts)
-  participant C as src/config/index.ts
-  participant F as src/providers/factory.ts
-  participant O as src/providers/openai-compatible.ts
-  participant G as src/genesis/context.ts
-  participant PL as src/genesis/planner.ts
-  participant D as src/genesis/docs.ts
+    participant User
+    participant CLI as cli/index.ts
+    participant Chat as ui/prompt.ts (startChat)
+    participant Reg as commands/registry.ts
+    participant Built as commands/builtins.ts
+    participant Cfg as config/index.ts
+    participant Prov as providers/factory.ts
+    participant Ctx as genesis/context.ts
+    participant Plan as genesis/planner.ts
+    participant Scope as genesis/scope.ts
+    participant Docs as genesis/docs.ts
+    participant FS as Filesystem
 
-  U->>P: /genesis [path]
-  P->>R: registry.execute("/genesis ...")
-  R->>B: handler(args)
-  B->>C: loadConfig(process.cwd())
-  C-->>B: AetherConfig | null
-  B->>F: createProvider(config)
-  F->>O: new OpenAICompatibleProvider(...)
-  B->>O: ping()
-  O-->>B: boolean
-  B->>G: scanContext(targetDir)
-  G-->>B: ProjectContext
-  B->>G: buildPrompt(context)
-  G-->>B: contextPrompt
-  B->>PL: planDocs(contextPrompt, provider, model)
-  PL->>O: chatWithRetry (PLANNER_PROMPT)
-  O-->>PL: ChatResponse
-  PL->>D: DOC_DEFINITIONS / buildCustomDocDefinition
-  D-->>B: DocDefinition[]
-  B->>O: chatWithRetry per doc (via src/providers/retry.ts)
-  O-->>B: doc content
-  B->>D: writeFile(.aether/docs/...)
-  B->>D: buildDocsIndex(...)
+    User->>CLI: run aether (node)
+    CLI->>Chat: startChat()
+    User->>Chat: type /genesis
+    Chat->>Reg: execute("/genesis")
+    Reg->>Built: handler(args)
+    Built->>Cfg: loadConfig(process.cwd())
+    Cfg-->>Built: AetherConfig | null
+    Built->>Prov: createProvider(config)
+    Prov-->>Built: LLMProvider
+    Built->>Ctx: scanContext(targetDir)
+    Ctx->>FS: read config/vision/source files
+    Ctx-->>Built: ProjectContext
+    Built->>Plan: planDocs(contextPrompt, provider, model)
+    Plan->>Prov: chatWithRetry(...)
+    Prov-->>Plan: ChatResponse (doc plan)
+    Plan-->>Built: DocDefinition[]
+    Built->>Scope: buildSharedProjectContext(context, provider, model)
+    Scope-->>Built: prompt string
+    Built->>Docs: buildDocsIndex(...)
+    Docs-->>Built: index markdown
+    Built->>FS: write .aether/docs/*.md + README.md
+    FS-->>User: generated knowledge base
 ```

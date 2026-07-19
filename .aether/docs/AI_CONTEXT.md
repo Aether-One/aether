@@ -1,55 +1,54 @@
-# AI Context — aether
+# AI Context: aether
 
-You are an AI assistant working on **aether**, a TypeScript CLI that transforms any codebase into an AI-native workspace by scanning a project and generating documentation via LLM providers. Follow the instructions below exactly. Every rule is derived from the actual source files in this repository (`src/`, `package.json`, `tsconfig.json`). Do not invent patterns, files, or technologies not evidenced here.
+You are working on `aether`, a CLI that transforms any codebase into an AI-native workspace by analyzing repositories and generating an AI-ready knowledge base (see `README.md` and `package.json` description: "Transform any codebase into an AI-native workspace.").
 
-## 1. Project Identity
+## Always Follow
 
-Aether is an open-source TypeScript/Node.js CLI (ESM, Node 20+) that analyzes a target codebase and generates a knowledge base (`.aether/docs/`) using OpenAI-compatible LLM providers, driven by an interactive command prompt.
+- Write TypeScript, not JavaScript. The project uses `strict: true` in `tsconfig.json` and `CONTRIBUTING.md` states "Write TypeScript, not JavaScript" and "Add types — avoid `any`".
+- Use the `CommandRegistry` in `src/commands/registry.ts` for any new CLI command: implement the `Command` interface (`{ name, description, usage?, handler }`) and register via `registry.register(...)`. Built-in commands are registered through `registerBuiltinCommands()` in `src/commands/builtins.ts` and `registerConfigCommand()` in `src/commands/config.ts`.
+- When adding LLM-backed features, use the `LLMProvider` interface from `src/providers/types.ts` and instantiate providers via `createProvider(config)` in `src/providers/factory.ts`. All current providers use `OpenAICompatibleProvider` from `src/providers/openai-compatible.ts`.
+- Wrap LLM `chat` calls with `chatWithRetry` from `src/providers/retry.ts` (default 3 retries, exponential backoff) and use `createRetryLogger()` for retry output.
+- For documentation generation, use the prompt constants re-exported from `src/prompts/index.ts` and the `DocDefinition` structures in `src/genesis/docs.ts`. All LLM doc calls must be wrapped with `BASE_PROMPT`/`PROMPT_SUFFIX` (machine-facing) or `HUMAN_BASE_PROMPT`/`HUMAN_PROMPT_SUFFIX` (human-facing) from `src/prompts/base.ts`.
+- Respect environment-variable controls already defined: `AETHER_GEN_CONCURRENCY` (default 4) in `src/commands/builtins.ts`, `AETHER_DISTILL_CONCURRENCY` (default 4) in `src/genesis/distill.ts`, `AETHER_DOC_CONTEXT_CHARS` (default 48_000) in `src/genesis/scope.ts`, and the scan limits `AETHER_MAX_FILE_SIZE`, `AETHER_MAX_TOTAL_CHARS`, `AETHER_MAX_FILES_WALKED`, `AETHER_MAX_WALK_DEPTH` in `src/genesis/context.ts`.
+- Store project settings at `join(rootDir, ".aether", "settings", "config.json")` via `getConfigPath` in `src/config/index.ts`; legacy path `join(rootDir, ".aether", "config.json")` is also read by `loadConfig`.
 
-## 2. Always Follow
+## Never Do
 
-- Use ESM with `type: "module"` in `package.json`; import paths MUST include the `.js` extension (e.g. `import { registry } from "./registry.js";`) as required by `tsconfig.json` (`module: "NodeNext"`, `moduleResolution: "NodeNext"`).
-- Write TypeScript under `strict: true` (see `tsconfig.json`). Avoid `any` — the only allowed cast is in `src/commands/config.ts` `setConfig` (`(config as any)[configKey] = value;` with an eslint-disable comment).
-- Use `chalk` (v5, ESM-only) for ALL terminal colors. Accent color is `chalk.hex("#895bf4")`; dim is `chalk.dim`; success is `chalk.green`. See `src/ui/animation.ts`, `src/commands/builtins.ts`, `src/commands/config.ts`.
-- Register all CLI commands via the `CommandRegistry` instance exported as `registry` from `src/commands/registry.ts`. Commands are matched case-insensitively (`.toLowerCase()` in `registry.execute`).
-- When calling an LLM, wrap `provider.chat()` with `chatWithRetry` from `src/providers/retry.ts` and pass `createRetryLogger()` as `onRetry`.
-- Prepend `BASE_PROMPT` and append `PROMPT_SUFFIX` (both from `src/prompts/base.ts`) around any LLM prompt built for doc generation — see `withBase()` in `src/genesis/docs.ts`.
-- Keep provider-agnostic: all providers go through `OpenAICompatibleProvider` (constructor `new OpenAICompatibleProvider(baseUrl, apiKey, timeout?, name?)`) created by `createProvider(config)` in `src/providers/factory.ts`. Requests use `Authorization: Bearer <apiKey>` header regardless of provider label.
+- Do not add a new LLM provider that bypasses `OpenAICompatibleProvider` unless `src/providers/factory.ts` is updated; the factory currently throws `Error(\`Unknown provider: ${config.provider}\`)` for unknown providers.
+- Do not write config files outside `.aether/settings/`; `ensureAetherScaffold` in `src/config/scaffold.ts` adds `.aether/settings/config.json` to `.gitignore` and writes `.aether/README.md`.
+- Do not generate documentation files outside the `outputPath` values defined in `DOC_DEFINITIONS` (`src/genesis/docs.ts`), which target `docs/` subdirectories under `.aether/`.
+- Do not use `any` in TypeScript code; `tsconfig.json` has `strict: true` and `CONTRIBUTING.md` says "avoid `any`".
+- Do not skip `validateConfig` when saving config: `src/commands/config.ts` calls `validateConfig` and `saveConfig(process.cwd(), config)` which requires `provider` (enum), `model`, `baseUrl`, `apiKey`.
+- Do not invent CLI commands not registered in `registry`; the chat loop in `src/ui/prompt.ts` only routes `/`-prefixed input to `registry.execute`.
 
-## 3. Never Do
+## Key Decisions
 
-- Never invent file names, function names, endpoints, classes, modules, or technologies not present in the provided context. (Enforced by `BASE_PROMPT` rules in `src/prompts/base.ts`.)
-- Never state that a roadmap / TODO / known-problem item from `CONTEXT.md` or `CONTRIBUTING.md` is implemented unless verifiable in `src/` code. (e.g. `/sync` is a stub in `src/commands/builtins.ts` that only prints "under development" — do NOT treat it as functional.)
-- Never let `provider` field in `AetherConfig` drift from the actual `baseUrl`. If `baseUrl` is changed, `detectProviderFromBaseUrl()` in `src/config/index.ts` MUST sync `provider` to the matched host (`openrouter.ai`, `api.openai.com`, `api.anthropic.com`, `generativelanguage.googleapis.com`).
-- Never crash the program with an unhandled exception from a command handler. Errors in `/genesis` are caught and formatted via `formatError()` in `src/commands/builtins.ts`; the prompt loop in `src/ui/prompt.ts` continues.
-- Never write doc files outside `docs/` via custom planner paths: `sanitizeDocPath()` in `src/genesis/planner.ts` rejects `..` and absolute paths.
-- Do not use parallel doc generation — `src/commands/builtins.ts` generates docs sequentially via `StepRunner`.
-- Do not add a fallback between models; if the configured model fails, the error propagates to `formatError()`.
+- The CLI entry point is `src/cli/index.ts` (`#!/usr/bin/env node`), which calls `registerHelpCommand()`, `registerBuiltinCommands()`, `registerConfigCommand()`, then `startChat()` from `src/ui/prompt.ts`. Do not change command registration flow without updating `index.ts`.
+- Provider configuration supports `"openai" | "anthropic" | "gemini" | "openrouter"` per `AetherConfig` in `src/config/index.ts`. `DEFAULT_CONFIGS` and `PROVIDER_HOSTS` map base URLs to providers via `detectProviderFromBaseUrl`.
+- Documentation planning uses an LLM to return a JSON array of doc IDs; `planDocs` in `src/genesis/planner.ts` always includes `CORE_IDS` (getting-started, onboarding, system-overview, folder-structure, tech-stack, ai-context) and falls back to them if parsing fails.
+- Context assembly in `src/genesis/scope.ts` uses `DOC_CONTEXT_BUDGET` (default 48_000 chars); if the built prompt exceeds budget, it distills via `distillFiles` from `src/genesis/distill.ts` rather than sending full context.
+- `sync` command (`src/commands/builtins.ts`) never deletes docs; it merges previous snapshot docs with new plan via `mergeDocMetas` and only refreshes changed files using `diffFingerprint` and `getGitLog` from `src/genesis/fingerprint.ts`.
+- Project scanning (`scanContext` in `src/genesis/context.ts`) hardcodes `CONFIG_FILES`, `VISION_FILE_CANDIDATES`, `IGNORED_DIRS`, `SOURCE_EXTENSIONS`, and entry-point candidates; vision files are labeled INTENT in `buildPrompt`.
 
-## 4. Key Decisions
+## Conventions
 
-- **Prompts are content, not code** — all LLM prompt strings live in `src/prompts/*.ts` (e.g. `AI_CONTEXT_PROMPT` in `src/prompts/ai-context.ts`, `PLANNER_PROMPT` in `src/prompts/planner.ts`) and are re-exported via `src/prompts/index.ts`. Do not inline prompts in logic files.
-- **Planner-before-generate** — `planDocs()` in `src/genesis/planner.ts` asks the LLM which docs to emit; `CORE_IDS` (`getting-started`, `onboarding`, `system-overview`, `folder-structure`, `tech-stack`, `ai-context`) are ALWAYS generated. The catalog is `DOC_DEFINITIONS` in `src/genesis/docs.ts`.
-- **No fixed file-count cap in scanner** — `scanContext()` in `src/genesis/context.ts` reads all source files ranked by `getImportanceScore()`, bounded only by `MAX_TOTAL_CHARS = 300_000` and `MAX_FILE_SIZE = 32_000`. Omitted files are reported explicitly in `omittedFiles`.
-- **Anthropic uses OpenAI-compatible path** — `src/providers/factory.ts` returns `OpenAICompatibleProvider` for `anthropic` (marked TODO: needs separate provider). Do not assume a native Anthropic client exists.
-- **Single production dependency** — `package.json` lists only `chalk` as a dependency. Dev deps: `typescript`, `tsx`, `esbuild`, `postject`, `@types/node`. Do not introduce other runtime deps without updating `package.json`.
+- File content structures use `interface FileContent { path: string; content: string }` (defined in `src/genesis/context.ts` and `src/genesis/distill.ts`).
+- Chat messages follow `ChatMessage` (`role: "system" | "user" | "assistant"; content: string`) from `src/providers/types.ts`.
+- CLI commands are named with lowercase verbs: `genesis`, `sync`, `config`, `help`, `exit`, `clear` (see `src/commands/builtins.ts`, `src/commands/config.ts`, `src/commands/help.ts`).
+- Doc definitions are grouped by `DocSection`: `"Guides" | "Architecture" | "Reference" | "AI Context" | "Project-specific"` with `SECTION_ORDER` enforced in `buildDocsIndex` (`src/genesis/docs.ts`).
+- Retry behavior is centralized: `chatWithRetry` in `src/providers/retry.ts` uses `baseDelay * 2^(attempt-1)` backoff.
+- UI output uses `chalk` (dependency in `package.json`) and the accent color `chalk.bold.hex("#895bf4")` in `src/ui/animation.ts`.
 
-## 5. Conventions
+## File Patterns
 
-- Source root is `src/`; `tsconfig.json` sets `rootDir: "./src"`, `outDir: "./dist"`.
-- CLI entry: `src/cli/index.ts` (shebang `#!/usr/bin/env node`) registers commands (`registerHelpCommand`, `registerBuiltinCommands`, `registerConfigCommand`) then calls `startChat()` from `src/ui/prompt.ts`.
-- Command files live in `src/commands/`: `registry.ts` (class + exported `registry`), `builtins.ts` (`/genesis`, `/sync`, `/exit`, `/clear`), `config.ts` (`/config`), `help.ts` (`/help`).
-- Provider files in `src/providers/`: `types.ts` (interfaces `LLMProvider`, `ChatRequest`, etc.), `openai-compatible.ts`, `factory.ts`, `retry.ts`, `index.ts` (re-exports).
-- Genesis logic in `src/genesis/`: `context.ts` (`scanContext`, `buildPrompt`), `planner.ts` (`planDocs`), `docs.ts` (`DOC_DEFINITIONS`, `buildCustomDocDefinition`, `buildDocsIndex`).
-- UI in `src/ui/`: `animation.ts` (`playStartupAnimation`, `printBanner`), `prompt.ts` (`startChat`), `steps.ts` (`StepRunner`).
-- Config type `AetherConfig` and load/save/validate in `src/config/index.ts`; stored at `.aether/config.json` via `saveConfig()`.
-- Naming: command handler functions are `registerXCommand()`; prompt constants are `UPPER_SNAKE_CASE` exports (e.g. `BASE_PROMPT`, `AI_CONTEXT_PROMPT`); classes are `PascalCase` (`CommandRegistry`, `OpenAICompatibleProvider`, `StepRunner`).
-
-## 6. File Patterns
-
-- New CLI commands: add a file in `src/commands/` exporting a `registerXCommand()` that calls `registry.register({ name, description, usage?, handler })`, and invoke it from `src/cli/index.ts`.
-- New LLM prompt: create `src/prompts/<topic>.ts` exporting a `const <TOPIC>_PROMPT`, and add it to the `export` list in `src/prompts/index.ts`.
-- New doc type in catalog: add a `DocDefinition` to `DOC_DEFINITIONS` in `src/genesis/docs.ts` using `withBase(context, <PROMPT>)` for `buildPrompt`.
-- New provider: implement the `LLMProvider` interface from `src/providers/types.ts` and add a case in `createProvider()` in `src/providers/factory.ts`.
-- Config changes: edit `AetherConfig` and `DEFAULT_CONFIGS` in `src/config/index.ts`; keep `PROVIDER_HOSTS` in sync for `detectProviderFromBaseUrl()`.
-- Generated output always lands under `.aether/docs/` with paths defined by each `DocDefinition.outputPath` (e.g. `docs/architecture/system-overview.md`, `docs/AI_CONTEXT.md`); the index is `docs/README.md` built by `buildDocsIndex()`.
+- CLI entry: `src/cli/index.ts`.
+- Commands: `src/commands/*.ts` (e.g. `builtins.ts`, `config.ts`, `help.ts`, `registry.ts`).
+- Config logic: `src/config/*.ts` (`index.ts`, `scaffold.ts`).
+- Genesis pipeline: `src/genesis/*.ts` (`context.ts`, `digest.ts`, `distill.ts`, `docs.ts`, `fingerprint.ts`, `planner.ts`, `scope.ts`, `sync.ts`).
+- Prompt templates: `src/prompts/*.ts` (one file per prompt, e.g. `base.ts`, `system-overview.ts`, `custom-doc.ts`); aggregate exports in `src/prompts/index.ts`.
+- Providers: `src/providers/*.ts` (`types.ts`, `factory.ts`, `openai-compatible.ts`, `retry.ts`, `index.ts`).
+- UI: `src/ui/*.ts` (`animation.ts`, `prompt.ts`, `steps.ts`).
+- Build script for single executable: `scripts/build-sea.mjs` (referenced in `package.json` `build:sea`).
+- Config file: `sea-config.json` at project root.
+- New doc prompts go in `src/prompts/` and must be re-exported from `src/prompts/index.ts`, then added to `DOC_DEFINITIONS` in `src/genesis/docs.ts` with a unique `id` and `outputPath` under `docs/`.
+- New commands go in `src/commands/` and must be registered via a `register*Command` function called from `src/cli/index.ts`.

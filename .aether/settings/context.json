@@ -1,0 +1,278 @@
+{
+  "generatedAt": "2026-07-19T04:03:39.832Z",
+  "provider": "openrouter",
+  "model": "tencent/hy3:free",
+  "git": {
+    "commit": "59b8668e74ee25f2315469691da3f4f9c38fc4aa",
+    "branch": "feat/sync-command",
+    "dirty": true
+  },
+  "files": {
+    "package.json": {
+      "hash": "5106970a48189fb5d3f4aacd6b58b9a6f1a1716230f6cc3f185784a3eb70b435",
+      "size": 918
+    },
+    "tsconfig.json": {
+      "hash": "e9e443d9c4301cbfd3098d0670b14455b1ff4022eba9fbd3fc9241a9786b7e24",
+      "size": 504
+    },
+    "README.md": {
+      "hash": "02981764969fef91a1332c57186954a5a8487eec0cce27d81e9a02949f9b05a5",
+      "size": 4417
+    },
+    "CONTRIBUTING.md": {
+      "hash": "069620a99982710c6bf52ea1b79de1423a9b4a8dda0ffb3925bbb2ee5bf5149f",
+      "size": 2613
+    },
+    "src/cli/index.ts": {
+      "hash": "a61c8e4512afee346ad853f94892a0174474d9b0306993d1678f77ebd30c41c0",
+      "size": 1068
+    },
+    "src/config/index.ts": {
+      "hash": "a7f27230afb5b8e642557ec1588745014e7107fab5ec0de286c91f6a70708e9b",
+      "size": 3918
+    },
+    "src/prompts/index.ts": {
+      "hash": "2665daafc7311443018cdf5f85b2a94ec7c65ed0dd23bcc80867d02db8b80213",
+      "size": 976
+    },
+    "src/providers/index.ts": {
+      "hash": "e945aad306d3e5808e8cd3fbaeb7f5d738b6711d3cfc37f0fc5539526e69eb2f",
+      "size": 214
+    },
+    "src/providers/types.ts": {
+      "hash": "d8362b3ca1918799b3e8055adf99a8e76b69e733c0d52627d7c81236ddeeee3b",
+      "size": 652
+    },
+    "src/commands/config.ts": {
+      "hash": "99ee8462aee8946403e5b39417eca618ae312d7d20094ce20477c5bbe82677ea",
+      "size": 8256
+    },
+    "src/commands/help.ts": {
+      "hash": "c8135fc47ea35c8a9a199a81c727d9e5c689bfe4ee0317cddd9583e01c49dcc7",
+      "size": 855
+    },
+    "src/commands/registry.ts": {
+      "hash": "7b0b8291b7abd53d8581126e7686f2aabfce82a8daa5d8a1556d5c79b5f8743f",
+      "size": 1104
+    },
+    "src/config/scaffold.ts": {
+      "hash": "673a7a552d11af37cd9db2838bcc81bc5161ff7683e96dd9d75e7e9464d4a5a1",
+      "size": 2569
+    },
+    "src/genesis/digest.ts": {
+      "hash": "43d9a953373cc0373b26f3338574fc403d87e389700e4c7d56b7a934e619232e",
+      "size": 4263
+    },
+    "src/genesis/fingerprint.ts": {
+      "hash": "84ec715bac4bb35eacef287238b898ce34dea3bed7abf4448af85685b4b2691b",
+      "size": 1963
+    },
+    "src/genesis/scope.ts": {
+      "hash": "0fe83cdee7435b14885c040e7ee236885702a4049c19478afaac0c9e7fd32700",
+      "size": 2462
+    },
+    "src/prompts/ai-context.ts": {
+      "hash": "79a929e3e42cfb689e1ac924d9b81124e2579141423ebf0abcf55a05524cea82",
+      "size": 911
+    },
+    "src/prompts/api.ts": {
+      "hash": "065ae626692e816723e663909a06120d7bb1b58afd13dc2a407f4b1a8d4d1621",
+      "size": 962
+    },
+    "src/prompts/business.ts": {
+      "hash": "6cb59129dda47ccca0b27b230a9c467e1ed6cf33e985d52073b9b033e8f4d115",
+      "size": 960
+    },
+    "src/prompts/coding-standards.ts": {
+      "hash": "bd069dcbddeee724e23832e7a1c9049341a5d2d5fa62b907ec9cf4d771b45663",
+      "size": 921
+    },
+    "src/prompts/contributing.ts": {
+      "hash": "d02f18f84fad411ff8af8d31b4bf1da6b436e865593d74f9136ed6c48a05703a",
+      "size": 1437
+    },
+    "src/prompts/custom-doc.ts": {
+      "hash": "5a3aa4baaee737e0307ebcf54a3d9cc03f64cd8b2f63bbd5b6a3e431d5f5cc7b",
+      "size": 723
+    },
+    "src/prompts/diagrams.ts": {
+      "hash": "af07b051115c07ad5103a3bc1cf28cd4d9a7db0fa1c4ca6ee9fd247780f869ae",
+      "size": 717
+    },
+    "src/prompts/folder-structure.ts": {
+      "hash": "ccd2419694be419a86b44530884e6b5e50a932f4d0c3732dbbac1791758769d2",
+      "size": 603
+    },
+    "src/prompts/getting-started.ts": {
+      "hash": "2aea6e3460de6e5617631f6458c4b75e1dfedba63863597f83d5d71bd8797bcb",
+      "size": 1804
+    },
+    "src/prompts/glossary.ts": {
+      "hash": "6df99a2225dcd23b961e91cdf60670f05880e18baf18f42e7492ca1582ad9ff1",
+      "size": 581
+    },
+    "src/prompts/modules.ts": {
+      "hash": "1c1a5a405cd53758aefa676bc40386de7cacdcf58f635a0e37ff0693299a6adc",
+      "size": 706
+    },
+    "src/prompts/onboarding.ts": {
+      "hash": "ca7c7ed50dce80ddc99a8be5d25445517c26af7197e6bbcd5b1fbf1d0081b902",
+      "size": 1991
+    },
+    "src/prompts/planner.ts": {
+      "hash": "2f07a163a8fea0ad73b2c74e1342484e94af0b7b9db2302aae1c88de65176bec",
+      "size": 3590
+    },
+    "src/prompts/sync.ts": {
+      "hash": "28f93e082c2260d40046637e265f5eac46e3b6b81822126cc2d4e7b6579239a8",
+      "size": 1525
+    },
+    "src/prompts/system-overview.ts": {
+      "hash": "df43d37b9c70fc1699e7cf9d26201ae614753cafae935fdb9e6f15ef7efb796a",
+      "size": 784
+    },
+    "src/prompts/tech-stack.ts": {
+      "hash": "3345c61b954f821b7d3e89812342e3ed8ce4346f3d13fba86379a60bce3e7e17",
+      "size": 786
+    },
+    "src/providers/factory.ts": {
+      "hash": "21e254a04269c69e2f5397f33a4e66413ed0a310e120cdab8681b00e5cb2873c",
+      "size": 920
+    },
+    "src/providers/retry.ts": {
+      "hash": "16552f6367c1ef073f823bc8f4cd87caf3884e9152353f8c0dc89d391be0e5ae",
+      "size": 2137
+    },
+    "src/ui/animation.ts": {
+      "hash": "b9345595234e8781ffca4ad2aec2c571aa27703feefb5b1772ebfbeb7dff8ef1",
+      "size": 2056
+    },
+    "src/commands/builtins.ts": {
+      "hash": "e613dc968142d52aeaa3076d2edd7e37a842c6c891c9c92b10eddd433d16ebe2",
+      "size": 21471
+    },
+    "src/genesis/context.ts": {
+      "hash": "416498c9ace895c9e4de01a044e1de4edcced5a96edd62f2da314cbd4c66f58b",
+      "size": 13235
+    },
+    "src/genesis/distill.ts": {
+      "hash": "d7271d2adc3a23f1dd1454cc2369b53028dc6b4a33c2ff4eb4214a4b31b6f17c",
+      "size": 5469
+    },
+    "src/genesis/docs.ts": {
+      "hash": "484a0613a65356b2fe8acbab9d90dd3199b3565dbe0be631e473fcb603a81f3e",
+      "size": 9161
+    },
+    "src/genesis/planner.ts": {
+      "hash": "5af7d645e71c9b24246e5ad482711cc81327fd65ac74523fc93bca51c529ce00",
+      "size": 9539
+    },
+    "src/genesis/sync.ts": {
+      "hash": "04e74fe49bcaa2273b5ea16145de4b3ab8969bc7dd221a4b5266ff4a802215a9",
+      "size": 8492
+    },
+    "src/prompts/base.ts": {
+      "hash": "0c21e5c6a06cf6db297e6e5bb7b44b62ead87a19c4fa504d00357d5e7a9caca2",
+      "size": 5511
+    },
+    "src/providers/openai-compatible.ts": {
+      "hash": "e951848f25999618a3d71193133858191b7af1e9e0d157c9e8ec5da04e80aaa2",
+      "size": 5102
+    },
+    "src/ui/prompt.ts": {
+      "hash": "11be4cae22d3d5727ed3728fd6d599d02d516748cd77df34fc3f72decbd237dc",
+      "size": 5209
+    },
+    "src/ui/steps.ts": {
+      "hash": "31a7910d924adac1444898869d30f304564d49956749c397bb6ebe9b18614119",
+      "size": 6068
+    }
+  },
+  "docs": [
+    {
+      "id": "getting-started",
+      "outputPath": "docs/guides/getting-started.md",
+      "title": "Getting Started",
+      "section": "Guides",
+      "summary": "Install, configure, and run the project locally."
+    },
+    {
+      "id": "onboarding",
+      "outputPath": "docs/guides/onboarding.md",
+      "title": "Onboarding",
+      "section": "Guides",
+      "summary": "The mental model, the why, and how to make your first change."
+    },
+    {
+      "id": "contributing",
+      "outputPath": "docs/guides/contributing.md",
+      "title": "Contributing",
+      "section": "Guides",
+      "summary": "Conventions, quality gates, and how to submit a change."
+    },
+    {
+      "id": "system-overview",
+      "outputPath": "docs/architecture/system-overview.md",
+      "title": "System Overview",
+      "section": "Architecture",
+      "summary": "High-level architecture and how the system fits together."
+    },
+    {
+      "id": "folder-structure",
+      "outputPath": "docs/architecture/folder-structure.md",
+      "title": "Folder Structure",
+      "section": "Architecture",
+      "summary": "Directory layout and where things live."
+    },
+    {
+      "id": "tech-stack",
+      "outputPath": "docs/architecture/tech-stack.md",
+      "title": "Tech Stack",
+      "section": "Architecture",
+      "summary": "Languages, frameworks, and key dependencies."
+    },
+    {
+      "id": "modules",
+      "outputPath": "docs/modules/overview.md",
+      "title": "Modules Overview",
+      "section": "Architecture",
+      "summary": "Per-module breakdown of responsibilities and exports."
+    },
+    {
+      "id": "diagrams",
+      "outputPath": "docs/diagrams/system.md",
+      "title": "Diagrams",
+      "section": "Architecture",
+      "summary": "Visual diagrams of the system and its relationships."
+    },
+    {
+      "id": "api",
+      "outputPath": "docs/api/endpoints.md",
+      "title": "API Reference",
+      "section": "Reference",
+      "summary": "API surface — endpoints or CLI commands."
+    },
+    {
+      "id": "ai-context",
+      "outputPath": "docs/AI_CONTEXT.md",
+      "title": "AI Context",
+      "section": "AI Context",
+      "summary": "System prompt for AI assistants working on this project."
+    },
+    {
+      "id": "custom:cli/commands-reference.md",
+      "outputPath": "docs/cli/commands-reference.md",
+      "title": "Aether CLI Commands",
+      "section": "Project-specific",
+      "summary": "Documents the CLI entry point in src/cli/index.ts and command registry in src/commands/registry.ts, including builtin commands from builtins.ts, config.ts, and help.ts, since this is a CLI tool with explicit command definitions."
+    },
+    {
+      "id": "custom:genesis/knowledge-pipeline.md",
+      "outputPath": "docs/genesis/knowledge-pipeline.md",
+      "title": "Genesis Knowledge Pipeline",
+      "section": "Project-specific",
+      "summary": "Explains the static-analysis and AI-augmented flow implemented in src/genesis/* (context.ts, digest.ts, fingerprint.ts, scope.ts, distill.ts, planner.ts, docs.ts, sync.ts) that builds the .aether/ knowledge base."
+    }
+  ]
+}
