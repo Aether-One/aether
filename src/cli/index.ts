@@ -32,7 +32,7 @@ async function main(): Promise<void> {
     printBanner();
   }
 
-  startChat();
+  await startChat();
 }
 
 main().catch((err) => {

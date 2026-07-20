@@ -30,6 +30,7 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
+    "@clack/core": "^1.4.3",
     "chalk": "^5.4.1"
   },
   "devDependencies": {

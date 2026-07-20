@@ -1,6 +1,7 @@
-import * as readline from "node:readline";
+import type { Key } from "node:readline";
 import chalk from "chalk";
-import { registry, type Command } from "../commands/registry.js";
+import { TextPrompt, isCancel } from "@clack/core";
+import { registry } from "../commands/registry.js";
 
 import { ACCENT, ACCENT_BOLD, DIM } from "./theme.js";
 
@@ -11,132 +12,137 @@ const TIPS = [
   `${DIM("tip:")} just type a message to chat`,
 ];
 
+const MAX_DROPDOWN = 6;
+
 let tipIndex = 0;
 let messageCount = 0;
-let dropdownVisible = false;
-let dropdownLines = 0;
 
-export function startChat(): void {
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-    terminal: true,
-    completer,
-  });
-
-  promptUser(rl);
-
-  rl.on("close", () => {
-    clearDropdown();
-    process.stdout.write(`\n${DIM("  ✦ See you next time.")}\n\n`);
-    process.exit(0);
-  });
-
-  // Show dropdown as user types
-  rl.on("line", () => { /* handled in question callback */ });
-
-  if (process.stdin.isTTY) {
-    readline.emitKeypressEvents(process.stdin, rl);
-  }
-
-  process.stdin.on("keypress", () => {
-    setImmediate(() => {
-      const line = (rl as unknown as { line: string }).line ?? "";
-      showDropdown(line);
-    });
-  });
-}
-
-function showDropdown(line: string): void {
-  clearDropdown();
-
-  if (!line.startsWith("/") || line.length < 1) return;
-
-  const partial = line.slice(1).toLowerCase();
-  const commands = registry.getAll();
-  const matches = partial.length === 0
-    ? commands
-    : commands.filter((c) => c.name.startsWith(partial));
-
-  if (matches.length === 0 || (matches.length === 1 && matches[0].name === partial)) return;
-
-  // Print dropdown below cursor
-  process.stdout.write("\x1B[s"); // save cursor
-  process.stdout.write("\n");
-
-  const maxShow = 6;
-  const toShow = matches.slice(0, maxShow);
-
-  for (const cmd of toShow) {
-    process.stdout.write(`  ${ACCENT(`/${cmd.name}`.padEnd(14))} ${DIM(cmd.description)}\n`);
-  }
-
-  if (matches.length > maxShow) {
-    process.stdout.write(DIM(`  (+${matches.length - maxShow} more)\n`));
-    dropdownLines = toShow.length + 2;
-  } else {
-    dropdownLines = toShow.length + 1;
-  }
-
-  process.stdout.write(DIM("  ↹ tab to complete\n"));
-  dropdownLines++;
-
-  dropdownVisible = true;
-  process.stdout.write("\x1B[u"); // restore cursor
-}
-
-function clearDropdown(): void {
-  if (!dropdownVisible) return;
-
-  process.stdout.write("\x1B[s");
-  for (let i = 0; i < dropdownLines; i++) {
-    process.stdout.write("\n\x1B[2K");
-  }
-  process.stdout.write(`\x1B[${dropdownLines}A`);
-  process.stdout.write("\x1B[u");
-
-  dropdownVisible = false;
-  dropdownLines = 0;
-}
-
-function completer(line: string): [string[], string] {
-  if (!line.startsWith("/")) return [[], line];
-
-  const partial = line.slice(1).toLowerCase();
-  const matches = registry.getAll()
-    .filter((c) => c.name.startsWith(partial))
-    .map((c) => `/${c.name}`);
-
-  return [matches, line];
-}
-
-function promptUser(rl: readline.Interface): void {
-  if (messageCount > 0 && messageCount % 4 === 0) {
-    process.stdout.write(`  ${TIPS[tipIndex % TIPS.length]}\n\n`);
-    tipIndex++;
-  }
-
-  rl.question(ACCENT_BOLD("  → "), async (input) => {
-    clearDropdown();
-    const trimmed = input.trim();
-    messageCount++;
-
-    if (!trimmed) {
-      promptUser(rl);
-      return;
+export async function startChat(): Promise<void> {
+  for (;;) {
+    if (messageCount > 0 && messageCount % 4 === 0) {
+      process.stdout.write(`  ${TIPS[tipIndex % TIPS.length]}\n\n`);
+      tipIndex++;
     }
+
+    const input = await ask();
+
+    // Ctrl+C — leave the same way the old readline "close" handler did.
+    if (isCancel(input)) {
+      process.stdout.write(`\n${DIM("  ✦ See you next time.")}\n\n`);
+      process.exit(0);
+    }
+
+    messageCount++;
+    const trimmed = input.trim();
+    if (!trimmed) continue;
 
     if (trimmed.startsWith("/")) {
       const handled = await registry.execute(trimmed);
-      if (handled) {
-        promptUser(rl);
-        return;
-      }
+      if (handled) continue;
     }
 
     respond(trimmed.startsWith("/") ? trimmed.slice(1) : trimmed);
-    promptUser(rl);
-  });
+  }
+}
+
+/** Prompt for one line. Resolves to the typed string, or a cancel symbol on Ctrl+C. */
+function ask(): Promise<string | symbol> {
+  const prompt = new ChatPrompt();
+  return prompt.prompt() as Promise<string | symbol>;
+}
+
+/**
+ * A single-line text prompt with a live dropdown of matching `/` commands and
+ * Tab completion. Rendering is delegated to @clack/core's TextPrompt.
+ */
+class ChatPrompt extends TextPrompt {
+  constructor() {
+    super({
+      render(this: TextPrompt) {
+        return renderFrame(this);
+      },
+    });
+
+    // readline inserts a literal tab into the buffer; intercept it for completion.
+    this.on("key", (_char: string | undefined, key: Key) => {
+      if (key?.name === "tab") this.handleTab();
+    });
+  }
+
+  private handleTab(): void {
+    const raw = this.userInput.replace(/\t/g, "");
+    const completed = completeSlash(raw);
+    const next = completed ?? raw;
+    // Rewrite the buffer (strips the stray tab even when there's nothing to complete).
+    if (next !== this.userInput) {
+      this._clearUserInput();
+      this._setUserInput(next, true);
+    }
+  }
+}
+
+export function renderFrame(p: Pick<TextPrompt, "userInput" | "userInputWithCursor" | "state">): string {
+  const line = `${ACCENT_BOLD("  → ")}${p.userInputWithCursor}`;
+  // Only show the dropdown while the user is actively editing.
+  if (p.state === "submit" || p.state === "cancel") return line;
+  return `${line}${buildDropdown(p.userInput)}`;
+}
+
+/** The dropdown block (leading newlines put it below the input line), or "" when hidden. */
+export function buildDropdown(line: string): string {
+  if (!line.startsWith("/")) return "";
+
+  const partial = line.slice(1).toLowerCase();
+  const commands = registry.getAll();
+  const matches = partial.length === 0 ? commands : commands.filter((c) => c.name.startsWith(partial));
+
+  // Hide once there's nothing useful left to suggest.
+  if (matches.length === 0) return "";
+  if (matches.length === 1 && matches[0].name === partial) return "";
+
+  const lines: string[] = [];
+  for (const cmd of matches.slice(0, MAX_DROPDOWN)) {
+    lines.push(`  ${ACCENT(`/${cmd.name}`.padEnd(14))} ${DIM(cmd.description)}`);
+  }
+  if (matches.length > MAX_DROPDOWN) {
+    lines.push(DIM(`  (+${matches.length - MAX_DROPDOWN} more)`));
+  }
+  lines.push(DIM("  ↹ tab to complete"));
+
+  return `\n${lines.join("\n")}`;
+}
+
+/**
+ * Completion for a partial `/command`. Returns the completed input, or null if
+ * there's nothing to complete. One match → full name + trailing space; several
+ * → the longest common prefix (mirrors readline).
+ */
+export function completeSlash(input: string): string | null {
+  if (!input.startsWith("/")) return null;
+
+  const partial = input.slice(1).toLowerCase();
+  const names = registry
+    .getAll()
+    .map((c) => c.name)
+    .filter((n) => n.startsWith(partial));
+
+  if (names.length === 0) return null;
+  if (names.length === 1) return `/${names[0]} `;
+
+  const prefix = commonPrefix(names);
+  return prefix.length > partial.length ? `/${prefix}` : null;
+}
+
+function commonPrefix(values: string[]): string {
+  if (values.length === 0) return "";
+  let prefix = values[0];
+  for (const value of values.slice(1)) {
+    while (!value.startsWith(prefix)) {
+      prefix = prefix.slice(0, -1);
+      if (!prefix) return "";
+    }
+  }
+  return prefix;
 }
 
 function respond(message: string): void {
