@@ -95,6 +95,11 @@ main() {
   # Make executable
   chmod +x "$TMP_FILE"
 
+  # macOS: remove quarantine attribute (prevents Gatekeeper from killing unsigned binaries)
+  if [ "$OS" = "macos" ] && command -v xattr >/dev/null 2>&1; then
+    xattr -d com.apple.quarantine "$TMP_FILE" 2>/dev/null || true
+  fi
+
   # Verify it runs
   if ! "$TMP_FILE" --version >/dev/null 2>&1; then
     rm -rf "$TMP_DIR"
@@ -107,6 +112,15 @@ main() {
   else
     info "Installing to ${INSTALL_DIR} (requires sudo)..."
     sudo mv "$TMP_FILE" "${INSTALL_DIR}/${BINARY_NAME}"
+  fi
+
+  # macOS: also strip quarantine from installed location
+  if [ "$OS" = "macos" ] && command -v xattr >/dev/null 2>&1; then
+    if [ -w "${INSTALL_DIR}/${BINARY_NAME}" ]; then
+      xattr -d com.apple.quarantine "${INSTALL_DIR}/${BINARY_NAME}" 2>/dev/null || true
+    else
+      sudo xattr -d com.apple.quarantine "${INSTALL_DIR}/${BINARY_NAME}" 2>/dev/null || true
+    fi
   fi
 
   # Cleanup
