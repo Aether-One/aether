@@ -17,10 +17,6 @@ jobs:
             platform: linux
             arch: x64
             binary: aether-linux-x64
-          - os: macos-13
-            platform: darwin
-            arch: x64
-            binary: aether-macos-x64
           - os: macos-latest
             platform: darwin
             arch: arm64
@@ -71,6 +67,5 @@ jobs:
           generate_release_notes: true
           files: |
             artifacts/aether-linux-x64/aether-linux-x64
-            artifacts/aether-macos-x64/aether-macos-x64
             artifacts/aether-macos-arm64/aether-macos-arm64
             artifacts/aether-win-x64.exe/aether-win-x64.exe
