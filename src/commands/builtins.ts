@@ -4,6 +4,7 @@ import { loadConfig } from "../config/index.js";
 import { ensureProjectReadme } from "../config/scaffold.js";
 import { GEN_CONCURRENCY } from "../genesis/constants.js";
 import { createProvider } from "../providers/factory.js";
+import type { PingResult } from "../providers/types.js";
 import { chatWithRetry, formatRetryLine } from "../providers/retry.js";
 import { scanContext } from "../genesis/context.js";
 import { buildPlannerDigest } from "../genesis/digest.js";
@@ -28,6 +29,30 @@ import { existsSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
 
 import { ACCENT, DIM, SUCCESS } from "../ui/theme.js";
+
+// Turn a failed connectivity check into an actionable, cause-specific message.
+// Previously every failure — timeout, no network, bad key — collapsed into a
+// single "Cannot reach / make sure the service is running", which was misleading
+// when the real cause was a slow network or an auth problem.
+function formatPingError(config: { provider: string; baseUrl: string }, ping: PingResult): string {
+  if (ping.reason === "timeout") {
+    return (
+      `${chalk.red("  ✗")} Connection to ${config.provider} timed out (${ping.message}).\n` +
+      `     ${DIM("The network was slow to respond — check your connection and try again.")}`
+    );
+  }
+  if (ping.reason === "http") {
+    const hint =
+      ping.status === 401 || ping.status === 403
+        ? `${DIM("Your API key looks invalid — recheck it with")} /config`
+        : DIM(`Unexpected response from ${config.baseUrl}.`);
+    return `${chalk.red("  ✗")} ${config.provider} rejected the request: ${ping.message}.\n     ${hint}`;
+  }
+  return (
+    `${chalk.red("  ✗")} Cannot reach ${config.provider} at ${config.baseUrl} (${ping.message}).\n` +
+    `     ${DIM("Check your internet connection.")}`
+  );
+}
 
 export function registerBuiltinCommands(): void {
   registry.register({
@@ -83,10 +108,9 @@ export function registerBuiltinCommands(): void {
 
         // Connect
         process.stdout.write(`     ${DIM("Connecting to")} ${config.provider} (${config.model})...`);
-        const alive = await provider.ping();
-        if (!alive) {
-          process.stdout.write(`\n\n${chalk.red("  ✗")} Cannot reach ${config.provider} at ${config.baseUrl}\n`);
-          process.stdout.write(`     ${DIM("Make sure the service is running.\n\n")}`);
+        const ping = await provider.ping();
+        if (!ping.ok) {
+          process.stdout.write(`\n\n${formatPingError(config, ping)}\n\n`);
           return;
         }
         process.stdout.write(` ${SUCCESS("✓")}\n`);
@@ -244,8 +268,9 @@ export function registerBuiltinCommands(): void {
       try {
         // Connect
         process.stdout.write(`     ${DIM("Connecting to")} ${config.provider} (${config.model})...`);
-        if (!(await provider.ping())) {
-          process.stdout.write(`\n\n${chalk.red("  ✗")} Cannot reach ${config.provider} at ${config.baseUrl}\n\n`);
+        const ping = await provider.ping();
+        if (!ping.ok) {
+          process.stdout.write(`\n\n${formatPingError(config, ping)}\n\n`);
           return;
         }
         process.stdout.write(` ${SUCCESS("✓")}\n`);

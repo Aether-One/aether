@@ -25,9 +25,18 @@ export interface StreamChunk {
   done: boolean;
 }
 
+// Outcome of a connectivity check. Distinguishes *why* a ping failed so the CLI
+// can show an actionable message instead of a generic "service down".
+export interface PingResult {
+  ok: boolean;
+  reason?: "timeout" | "network" | "http";
+  status?: number;
+  message?: string;
+}
+
 export interface LLMProvider {
   name: string;
   chat(request: ChatRequest): Promise<ChatResponse>;
   chatStream(request: ChatRequest): AsyncGenerator<StreamChunk>;
-  ping(): Promise<boolean>;
+  ping(): Promise<PingResult>;
 }

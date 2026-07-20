@@ -1,4 +1,4 @@
-import type { LLMProvider, ChatRequest, ChatResponse, StreamChunk } from "./types.js";
+import type { LLMProvider, ChatRequest, ChatResponse, StreamChunk, PingResult } from "./types.js";
 
 export class OpenAICompatibleProvider implements LLMProvider {
   name: string;
@@ -126,11 +126,13 @@ export class OpenAICompatibleProvider implements LLMProvider {
     }
   }
 
-  async ping(): Promise<boolean> {
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
+  async ping(): Promise<PingResult> {
+    const controller = new AbortController();
+    // 10s: a 5s window was tight enough that a momentarily slow network read as
+    // "service down". The check hits a lightweight /models list, so 10s is safe.
+    const timeout = setTimeout(() => controller.abort(), 10_000);
 
+    try {
       const response = await fetch(`${this.baseUrl}/models`, {
         method: "GET",
         headers: {
@@ -139,10 +141,27 @@ export class OpenAICompatibleProvider implements LLMProvider {
         signal: controller.signal,
       });
 
+      if (response.ok) return { ok: true };
+      return {
+        ok: false,
+        reason: "http",
+        status: response.status,
+        message: `HTTP ${response.status} ${response.statusText}`.trim(),
+      };
+    } catch (err) {
+      // An abort fires as an exception too — separate it from real network errors
+      // so the caller can say "timed out" vs "couldn't connect".
+      if (controller.signal.aborted) {
+        return { ok: false, reason: "timeout", message: "timed out after 10s" };
+      }
+      const e = err as Error & { cause?: { code?: string } };
+      return {
+        ok: false,
+        reason: "network",
+        message: e.cause?.code || e.message || "network error",
+      };
+    } finally {
       clearTimeout(timeout);
-      return response.ok;
-    } catch {
-      return false;
     }
   }
 }
