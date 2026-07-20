@@ -90,7 +90,7 @@ step("Injecting SEA blob into binary...");
 if (platform === "darwin") {
   // macOS: remove code signature, inject, re-sign
   run(`codesign --remove-signature "${OUTPUT_BIN}"`);
-  run(`npx postject "${OUTPUT_BIN}" NODE_SEA_BLOB "${BLOB_PATH}" --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2`);
+  run(`npx postject "${OUTPUT_BIN}" NODE_SEA_BLOB "${BLOB_PATH}" --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2 --macho-segment-name NODE_SEA`);
   run(`codesign --sign - "${OUTPUT_BIN}"`);
 } else {
   run(`npx postject "${OUTPUT_BIN}" NODE_SEA_BLOB "${BLOB_PATH}" --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2 --overwrite`);
