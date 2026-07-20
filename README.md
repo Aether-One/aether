@@ -94,9 +94,27 @@ More commands coming soon: `sync`, `doctor`, `explain`, `export`.
 
 ## Installation
 
-> Folloq the link: [Click here](https://aether-docs-sigma.vercel.app/docs/getting-started)
+### macOS / Linux
 
-Requires Node.js 20+.
+```bash
+curl -fsSL https://raw.githubusercontent.com/aether-one/aether/main/scripts/install.sh | sh
+```
+
+### Windows (PowerShell)
+
+```powershell
+irm https://raw.githubusercontent.com/aether-one/aether/main/scripts/install.ps1 | iex
+```
+
+### Verify
+
+```bash
+aether --version
+```
+
+> For manual installation and other options, visit our [documentation](https://aether-docs-sigma.vercel.app/docs/getting-started).
+
+Requires Node.js 20+ (only for development, not needed for the binary).
 
 ## Roadmap
 

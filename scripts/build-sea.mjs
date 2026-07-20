@@ -24,15 +24,17 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
 const DIST_SEA = resolve(ROOT, "dist", "sea");
 
-// Detect platform
+// Detect platform and architecture
 const platform = process.env.AETHER_TARGET_OS || process.platform;
+const arch = process.env.AETHER_TARGET_ARCH || process.arch;
 
 function getBinaryName() {
+  const archSuffix = arch === "arm64" ? "arm64" : "x64";
   switch (platform) {
-    case "win32":  return "aether-win-x64.exe";
-    case "darwin": return "aether-macos-x64";
-    case "linux":  return "aether-linux-x64";
-    default:       return `aether-${platform}-x64`;
+    case "win32":  return `aether-win-${archSuffix}.exe`;
+    case "darwin": return `aether-macos-${archSuffix}`;
+    case "linux":  return `aether-linux-${archSuffix}`;
+    default:       return `aether-${platform}-${archSuffix}`;
   }
 }
 
