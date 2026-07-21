@@ -10,6 +10,7 @@ import { ACCENT, ACCENT_BOLD, DIM } from "./theme.js";
 const TIPS = [
   `${DIM("tip:")} use ${ACCENT("/genesis")} to analyze your project`,
   `${DIM("tip:")} ${ACCENT("Tab")} to autocomplete commands`,
+  `${DIM("tip:")} ${ACCENT("/ask")} answers questions from your project docs`,
   `${DIM("tip:")} ${ACCENT("/exclude @")} picks a path to skip`,
   `${DIM("tip:")} ${ACCENT("/cleancode review @")} picks a file or folder to review`,
   `${DIM("tip:")} ${ACCENT("/clear")} clears the screen`,

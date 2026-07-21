@@ -57,8 +57,6 @@ export function registerCleanCodeCommand(): void {
   });
 }
 
-// ─── Help ────────────────────────────────────────────────────────────────────
-
 function showCleanCodeHelp(): void {
   process.stdout.write(`\n${ACCENT("  🧼 ")}${DIM("aether cleancode")}\n\n`);
   process.stdout.write(`     Scan the project for clean code violations and write ${cleanCodeMarkdownRelPath()} —\n`);
@@ -82,26 +80,6 @@ function showCleanCodeHelp(): void {
   process.stdout.write("\n");
 }
 
-function formatPingError(config: { provider: string; baseUrl: string }, ping: PingResult): string {
-  if (ping.reason === "timeout") {
-    return (
-      `${ERROR("  ✗")} Connection to ${config.provider} timed out (${ping.message}).\n` +
-      `     ${DIM("The network was slow to respond — check your connection and try again.")}`
-    );
-  }
-  if (ping.reason === "http") {
-    const hint =
-      ping.status === 401 || ping.status === 403
-        ? `${DIM("Your API key looks invalid — recheck it with")} /config`
-        : DIM(`Unexpected response from ${config.baseUrl}.`);
-    return `${ERROR("  ✗")} ${config.provider} rejected the request: ${ping.message}.\n     ${hint}`;
-  }
-  return (
-    `${ERROR("  ✗")} Cannot reach ${config.provider} at ${config.baseUrl} (${ping.message}).\n` +
-    `     ${DIM("Check your internet connection.")}`
-  );
-}
-
 function resolveTarget(rawArg: string): { targetDir: string; singleFile: string | null } | null {
   const trimmed = rawArg.trim();
   if (!trimmed) return { targetDir: process.cwd(), singleFile: null };
@@ -114,8 +92,6 @@ function resolveTarget(rawArg: string): { targetDir: string; singleFile: string 
   }
   return { targetDir: abs, singleFile: null };
 }
-
-// ─── review ──────────────────────────────────────────────────────────────────
 
 async function runReview(rawArg: string): Promise<void> {
   const tokens = rawArg.trim().split(/\s+/).filter(Boolean);
@@ -227,8 +203,6 @@ function printSummary(issues: { severity: "high" | "medium" | "low" }[], reportR
   process.stdout.write(`     ${DIM("Wrote")} ${ACCENT(reportRelPath)} ${DIM("— point your AI assistant at it to apply the fixes.")}\n\n`);
 }
 
-// ─── ignore ──────────────────────────────────────────────────────────────────
-
 async function manageIgnore(rawArg: string): Promise<void> {
   const targetDir = process.cwd();
   const pattern = rawArg.trim().replace(/^["']|["']$/g, "");
@@ -249,8 +223,6 @@ async function manageIgnore(rawArg: string): Promise<void> {
   const patterns = await addCleanCodeIgnorePattern(targetDir, pattern);
   process.stdout.write(`\n${SUCCESS("  ✓")} Added ignore pattern: ${pattern} ${DIM(`(${patterns.length} total)`)}\n\n`);
 }
-
-// ─── paradigm ────────────────────────────────────────────────────────────────
 
 async function manageParadigm(rawArg: string): Promise<void> {
   const targetDir = process.cwd();
