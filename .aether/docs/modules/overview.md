@@ -6,7 +6,7 @@
 Entry point for the `aether` CLI. Handles version flags, command registration, interactive detection, startup animation, and launches the interactive chat loop.
 
 **Key Files**  
-- `src/cli/index.ts` — `main()` async entry point; registers commands in order (help, builtins, config, clean); detects TTY; plays startup animation or prints banner; calls `startChat()`.
+- `src/cli/index.ts` — `main()` async entry point; registers commands in order (help, builtins, config, clean, exclude); detects TTY; plays startup animation or prints banner; calls `startChat()`.
 
 **Exports**  
 - `main()` — async entry point (called via `bin` entry in `package.json`)
@@ -18,6 +18,7 @@ Entry point for the `aether` CLI. Handles version flags, command registration, i
 - `../commands/builtins.ts` → `registerBuiltinCommands()`
 - `../commands/config.ts` → `registerConfigCommand()`
 - `../commands/clean.ts` → `registerCleanCommand()`
+- `../commands/exclude.ts` → `registerExcludeCommand()`
 
 **Flow**  
 1. Parse `--version`/`-v` → print version and exit  
@@ -25,38 +26,36 @@ Entry point for the `aether` CLI. Handles version flags, command registration, i
 3. Detect TTY (`process.stdin.isTTY`)  
 4. If TTY and not `--no-animation` → `playStartupAnimation()` else `printBanner()`  
 5. Call `startChat()` → enters interactive REPL loop  
-4. Catch errors → stderr + exit(1)
-
----
+6. Catch errors → stderr + exit(1)
 
 ## 2. src/commands — Command Implementations & Registry
 
 **Purpose**  
-Implements all slash-commands (`/help`, `/config`, `/clean`, `/genesis` via builtins) and provides the command registry for dispatch.
+Implements all slash-commands (`/help`, `/config`, `/clean`, `/exclude`, `/genesis` via builtins) and provides the command registry for dispatch.
 
 **Key Files**  
 - `src/commands/registry.ts` — `CommandRegistry` class (Map-based), `Command` interface, `registry` singleton, `execute(input)` parser  
 - `src/commands/help.ts` — `registerHelpCommand()` → lists all registered commands with descriptions/usage  
 - `src/commands/config.ts` — `registerConfigCommand()` → `/config [--provider|--model|--url|--key]` + subcommands (`show`, `set`, `quick-setup`)  
 - `src/commands/clean.ts` — `registerCleanCommand()` → `/clean` (removes `.aether/` cache)  
+- `src/commands/exclude.ts` — `registerExcludeCommand()` → `/exclude <path>` (or `@` in prompt to pick) + `list`, `remove`/`rm` subcommands; manages `.aether/settings/exclude.json`  
 - `src/commands/builtins.ts` — `registerBuiltinCommands()` → registers `/genesis` (delegates to genesis pipeline)
 
 **Exports**  
 - `registry` (singleton `CommandRegistry`)  
-- `registerHelpCommand()`, `registerBuiltinCommands()`, `registerConfigCommand()`, `registerCleanCommand()`
+- `registerHelpCommand()`, `registerBuiltinCommands()`, `registerConfigCommand()`, `registerCleanCommand()`, `registerExcludeCommand()`
 
 **Dependencies**  
 - `../config/index.ts` → `loadConfig()`, `saveConfig()`, `validateConfig()`, `getDefaultConfig()`, `maskKey()`  
 - `../config/types.ts` → `AetherConfig`  
 - `../ui/theme.ts` → `ACCENT`, `DIM`, `SUCCESS`, `WARN`, `ERROR`  
+- `../genesis/exclude.ts` → `loadExcludes()`, `addExclude()`, `removeExclude()`  
 - `chalk` (external)
 
 **Flow**  
 1. CLI calls `register*Command()` during startup → populates `registry` Map  
 2. User types `/command args` in chat → `registry.execute(input)` parses `/name args` → calls `handler(args)`  
-3. Handlers use config API, chalk/theme for output, and genesis pipeline (for `/genesis`)
-
----
+3. Handlers use config API, chalk/theme for output, and genesis pipeline (for `/genesis`) or exclude API (for `/exclude`)
 
 ## 3. src/config — Configuration Management
 
@@ -90,8 +89,6 @@ Manages global and per-project configuration: provider, model, baseUrl, apiKey, 
 4. `validateConfig()` enforces required fields and valid provider enum  
 5. `ensureProjectReadme()` scaffolds `.aether/README.md` on first genesis
 
----
-
 ## 4. src/genesis — Core Analysis & Documentation Pipeline
 
 **Purpose**  
@@ -100,19 +97,21 @@ Core "genesis" pipeline: scans a project, builds context, fingerprints files, pl
 **Key Files**  
 - `src/genesis/types.ts` — Core types: `ProjectContext`, `FileFingerprint`, `GitInfo`, `DistillCache`, `DocDefinition`, `DocSection`, `Snapshot`, `FileDiff`, `SyncPlan`, `SectionPatch`  
 - `src/genesis/constants.ts` — Env-overridable limits: `MAX_FILE_SIZE`, `MAX_TOTAL_CHARS`, `MAX_FILES_WALKED`, `MAX_WALK_DEPTH`, `DOC_CONTEXT_BUDGET`, `GEN_CONCURRENCY`, `DISTILL_CONCURRENCY`  
-- `src/genesis/context.ts` — (not shown in detail) builds `ProjectContext` from filesystem scan  
+- `src/genesis/context.ts` — builds `ProjectContext` from filesystem scan; respects exclude patterns from `.aether/settings/exclude.json`  
 - `src/genesis/digest.ts` — `buildPlannerDigest(context)` → compact summary for planner; `detectSignals()`, `extractSymbols()`  
 - `src/genesis/fingerprint.ts` — `buildFingerprint(context)`, `getGitInfo(rootDir)`, `getGitLog(rootDir, sinceCommit)`  
 - `src/genesis/scope.ts` — `buildSharedProjectContext(context, provider, model, hooks?)` → builds shared context prompt; distills if over `DOC_CONTEXT_BUDGET` using incremental cache  
 - `src/genesis/distill.ts` — `distillFilesIncremental(files, provider, model, budget, prevCache, hooks)` → incremental LLM-based distillation with caching  
 - `src/genesis/planner.ts` — `planDocs(contextPrompt, provider, model, options?)` → LLM plans which docs to generate; `parsePlan()`, `extractJsonArray()`  
 - `src/genesis/docs.ts` — `DOC_DEFINITIONS` (13 built-in docs), `buildDocPrompt()`, `buildDocUpdatePrompt()`, `buildSectionPatchPrompt()`, `buildCustomDocDefinition()`, `buildDocsIndex()`, `SECTION_ORDER`  
-- `src/genesis/sync.ts` — (not shown in detail) sync planning/diffing
+- `src/genesis/sync.ts` — sync planning/diffing  
+- `src/genesis/estimate.ts` — `estimateGenesis()`, `estimateSync()` → cost estimation for genesis/sync operations  
+- `src/genesis/exclude.ts` — `loadExcludes(rootDir)`, `addExclude(rootDir, path)`, `removeExclude(rootDir, path)`; manages `.aether/settings/exclude.json`
 
 **Exports**  
 - Types: `ProjectContext`, `FileContent`, `FileFingerprint`, `GitInfo`, `DistillCache`, `DistillHooks`, `DocSection`, `DocDefinition`, `CustomDocSpec`, `DocIndexEntry`, `DocMeta`, `Snapshot`, `FileDiff`, `SyncPlan`, `SectionPatch`  
 - Constants: `MAX_FILE_SIZE`, `MAX_TOTAL_CHARS`, `MAX_FILES_WALKED`, `MAX_WALK_DEPTH`, `DOC_CONTEXT_BUDGET`, `GEN_CONCURRENCY`, `DISTILL_CONCURRENCY`  
-- Functions: `buildPlannerDigest()`, `detectSignals()`, `extractSymbols()`, `buildFingerprint()`, `getGitInfo()`, `getGitLog()`, `buildSharedProjectContext()`, `distillFilesIncremental()`, `planDocs()`, `parsePlan()`, `buildDocPrompt()`, `buildDocUpdatePrompt()`, `buildSectionPatchPrompt()`, `buildCustomDocDefinition()`, `buildDocsIndex()`, `DOC_DEFINITIONS`, `SECTION_ORDER`
+- Functions: `buildPlannerDigest()`, `detectSignals()`, `extractSymbols()`, `buildFingerprint()`, `getGitInfo()`, `getGitLog()`, `buildSharedProjectContext()`, `distillFilesIncremental()`, `planDocs()`, `parsePlan()`, `buildDocPrompt()`, `buildDocUpdatePrompt()`, `buildSectionPatchPrompt()`, `buildCustomDocDefinition()`, `buildDocsIndex()`, `DOC_DEFINITIONS`, `SECTION_ORDER`, `estimateGenesis()`, `estimateSync()`, `loadExcludes()`, `addExclude()`, `removeExclude()`
 
 **Dependencies**  
 - `../providers/types.ts` → `LLMProvider`, `ChatRequest`, `ChatResponse`  
@@ -121,19 +120,21 @@ Core "genesis" pipeline: scans a project, builds context, fingerprints files, pl
 - `../prompts/index.ts` → all prompt templates  
 - `../util/hash.ts` → `hashContent()`  
 - `../util/env.ts` → `envInt()`  
+- `../util/tokens.ts` → `estimateTokens()`  
+- `../pricing/index.ts` → `getModelPricing()`, `ModelPricing`  
 - `node:fs/promises`, `node:fs`, `node:path`, `node:crypto`, `node:child_process` (execFileSync)
 
 **Flow**  
-1. **Scan** (`context.ts` not shown but implied) → builds `ProjectContext` (files, tree, config, entry points)  
+1. **Scan** (`context.ts`) → builds `ProjectContext` (files, tree, config, entry points); respects exclude patterns from `.aether/settings/exclude.json`  
 2. **Digest** (`digest.ts`) → `buildPlannerDigest()` creates compact summary for planner  
 3. **Plan** (`planner.ts`) → `planDocs()` sends digest to LLM → returns planned `DocDefinition[]` (built-in + custom)  
 4. **Scope** (`scope.ts`) → `buildSharedProjectContext()` builds shared context; if over budget, `distillFilesIncremental()` compresses source files via LLM with incremental caching  
 5. **Generate** (`docs.ts`) → for each `DocDefinition`, `buildDocPrompt()` creates prompt → sent to LLM → output written to `.aether/docs/`  
 6. **Fingerprint** (`fingerprint.ts`) → `buildFingerprint()` hashes all tracked files; `getGitInfo()` captures git state  
 7. **Snapshot** → writes `.aether/snapshot.json` with fingerprints, git info, generated docs metadata  
-8. **Sync** (`sync.ts`) → on re-run, diffs fingerprints → `SyncPlan` (regenerate/add) → partial updates via `buildSectionPatchPrompt()`
-
----
+8. **Sync** (`sync.ts`) → on re-run, diffs fingerprints → `SyncPlan` (regenerate/add) → partial updates via `buildSectionPatchPrompt()`  
+9. **Estimate** (`estimate.ts`) → `estimateGenesis()` / `estimateSync()` estimate token usage and cost before execution  
+10. **Exclude** (`exclude.ts`) → manages `.aether/settings/exclude.json` for paths to skip during scan
 
 ## 5. src/prompts — Prompt Templates
 
@@ -173,42 +174,45 @@ All prompt constants and `buildCustomDocPrompt` function
 3. `genesis/sync.ts` uses `SYNC_PLANNER_PROMPT`, `DOC_UPDATE_INSTRUCTIONS`, `SECTION_PATCH_INSTRUCTIONS`  
 4. Human-facing docs (Guides) use `HUMAN_BASE_PROMPT`/`HUMAN_PROMPT_SUFFIX`; others use machine prompts
 
----
-
 ## 6. src/providers — LLM Provider Abstraction
 
 **Purpose**  
-Abstracts LLM providers behind a common interface. Currently only `OpenAICompatibleProvider` implemented (used for OpenAI, Gemini, Anthropic, OpenRouter with TODO for Anthropic format differences).
+Abstracts LLM providers behind a common interface. Implements `OpenAICompatibleProvider` (used for OpenAI, Gemini, Anthropic, OpenRouter) and `AnthropicProvider` (Anthropic native format). Includes retry logic with exponential backoff and rate-limit handling.
 
 **Key Files**  
-- `src/providers/types.ts` — Interfaces: `ChatMessage`, `ChatRequest`, `ChatResponse`, `StreamChunk`, `LLMProvider`  
+- `src/providers/types.ts` — Interfaces: `ChatMessage`, `ChatRequest`, `ChatResponse`, `StreamChunk`, `PingResult`, `LLMProvider`  
 - `src/providers/openai-compatible.ts` — `OpenAICompatibleProvider` class implementing `LLMProvider` (chat, chatStream, ping)  
-- `src/providers/factory.ts` — `createProvider(config: AetherConfig)` → switches on provider name, instantiates `OpenAICompatibleProvider` with provider-specific name  
+- `src/providers/anthropic.ts` — `AnthropicProvider` class implementing `LLMProvider` with Anthropic native API format  
+- `src/providers/openrouter.ts` — `OpenRouterProvider` extends `OpenAICompatibleProvider`, disables reasoning tokens  
+- `src/providers/factory.ts` — `createProvider(config: AetherConfig)` → switches on provider name, instantiates appropriate provider  
 - `src/providers/retry.ts` — `chatWithRetry()`, `RetryOptions`, `isRateLimitError()`, `extractRetryDelay()`, `formatRetryLine()`, `createRetryLogger()`  
+- `src/providers/metered.ts` — `MeteredProvider` wrapper that tracks token usage and call counts  
 - `src/providers/index.ts` — Barrel export
 
 **Exports**  
-- Types: `LLMProvider`, `ChatMessage`, `ChatRequest`, `ChatResponse`, `StreamChunk`  
+- Types: `LLMProvider`, `ChatMessage`, `ChatRequest`, `ChatResponse`, `StreamChunk`, `PingResult`  
 - `OpenAICompatibleProvider` class  
+- `AnthropicProvider` class  
+- `OpenRouterProvider` class  
 - `createProvider(config)` factory  
+- `MeteredProvider` class, `UsageTotals`  
 - Retry utilities: `chatWithRetry()`, `RetryOptions`, `formatRetryLine()`, `createRetryLogger()`
 
 **Dependencies**  
 - `../config/index.ts` → `AetherConfig`  
 - `../ui/theme.ts` → `DIM`, `WARN` (for retry logging)  
-- `node:fetch` (implied by `OpenAICompatibleProvider` implementation, not shown but implied)
+- `node:fetch` (implied by provider implementations)
 
 **Flow**  
 1. `createProvider(config)` → returns provider instance based on `config.provider`  
 2. Caller uses `provider.chat(request)` or `provider.chatStream(request)`  
-3. For resilience, callers use `chatWithRetry(provider, request, options)` which handles retries, rate limits (429), exponential backoff, and optional logging via `onRetry` callback
-
----
+3. For resilience, callers use `chatWithRetry(provider, request, options)` which handles retries, rate limits (429), exponential backoff, and optional logging via `onRetry` callback  
+4. `MeteredProvider` wraps any provider to track token usage and call counts
 
 ## 7. src/ui — User Interface Components
 
 **Purpose**  
-Terminal UI: startup animation, interactive REPL with command dropdown, step runner with spinners, theme constants.
+Terminal UI: startup animation, interactive REPL with command dropdown, step runner with spinners, theme constants, cost display, confirmation prompts, and cancellation handling.
 
 **Key Files**  
 - `src/ui/theme.ts` — Color constants: `ACCENT_HEX`, `ACCENT`, `ACCENT_BOLD`, `DIM`, `SUCCESS`, `WARN`, `ERROR` (all `chalk` wrappers)  
@@ -216,31 +220,33 @@ Terminal UI: startup animation, interactive REPL with command dropdown, step run
 - `src/ui/prompt.ts` — `startChat()` → readline REPL with:  
   - Tab completion for `/` commands via `registry.getAll()`  
   - Live dropdown on `/` prefix (ANSI cursor save/restore)  
+  - `@` path mentions with inline dropdown (filters project dirs, respects excludes)  
   - Pattern-matched responses for `help`, `hello`, `genesis` keywords  
   - Rotating tips every 4 messages  
+  - Reloads dirs/excludes after `/exclude` commands  
 - `src/ui/steps.ts` — `StepRunner` class for multi-step progress:  
   - `addStep(label)`, `runStep(index, fn)`, `runPooled(limit, fn)` (concurrent with per-step spinners)  
   - `setWriting(index)`, `setDetail(index, detail)`, `finish(summary?)`, `error(message)`  
-  - `LineSpinner` class for individual line spinners (braille frames)
+  - `LineSpinner` class for individual line spinners (braille frames)  
+- `src/ui/cost.ts` — `formatCost()`, `formatCostRange()`, `printCostEstimate()` for displaying token/cost estimates  
+- `src/ui/confirm.ts` — `confirm()` for yes/no prompts with keyboard navigation  
+- `src/ui/cancel.ts` — `CancellationToken` and `createCancellationToken()` for cooperative cancellation
 
 **Exports**  
 - `playStartupAnimation()`, `printBanner()`  
 - `startChat()`  
 - `Step`, `StepRunner`, `LineSpinner`  
+- `formatCost()`, `formatCostRange()`, `printCostEstimate()`  
+- `confirm()`  
+- `CancellationToken`, `createCancellationToken()`  
 - Theme constants: `ACCENT`, `ACCENT_BOLD`, `DIM`, `SUCCESS`, `WARN`, `ERROR`
 
 **Dependencies**  
 - `chalk` (external)  
 - `node:readline` (prompt.ts)  
 - `../commands/registry.ts` → `registry`, `Command` (prompt.ts)  
+- `../genesis/exclude.ts` → `loadExcludes()` (prompt.ts)  
 - Internal: `./theme.ts` used by all
-
-**Flow**  
-1. CLI startup → `playStartupAnimation()` or `printBanner()`  
-2. `startChat()` → readline loop → user input → completer/dropdown → `registry.execute()` for `/` commands → pattern responses for free text  
-3. Long-running commands (e.g., `/genesis`) use `StepRunner` to show multi-step progress with spinners
-
----
 
 ## 8. src/util — Utility Functions
 
@@ -249,25 +255,26 @@ Small, focused helpers used across the codebase.
 
 **Key Files**  
 - `src/util/hash.ts` — `hashContent(content)` → normalizes CRLF→LF, returns SHA-256 hex  
-- `src/util/env.ts` — `envInt(name, fallback)` → parses positive int from env var with validation
+- `src/util/env.ts` — `envInt(name, fallback)` → parses positive int from env var with validation  
+- `src/util/tokens.ts` — `estimateTokens(chars)` → rough token estimate (chars/4)
 
 **Exports**  
 - `hashContent(content: string): string`  
-- `envInt(name: string, fallback: number): number`
+- `envInt(name: string, fallback: number): number`  
+- `estimateTokens(chars: number): number`
 
 **Dependencies**  
 - `node:crypto` (hash.ts)  
-- None (env.ts)
+- None (env.ts, tokens.ts)
 
 **Flow**  
 - `hashContent()` used by `fingerprint.ts` for file fingerprints and `config/index.ts` for projectId  
-- `envInt()` used by `genesis/constants.ts` for all env-overridable limits
-
----
+- `envInt()` used by `genesis/constants.ts` for all env-overridable limits  
+- `estimateTokens()` used by `genesis/estimate.ts` for cost estimation
 
 ## Dependency Map
 
-```mermaid
+ mermaid
 graph TD
     CLI[src/cli/index.ts] --> UI_ANIM[src/ui/animation.ts]
     CLI --> UI_PROMPT[src/ui/prompt.ts]
@@ -295,6 +302,9 @@ graph TD
 
     UI_ANIM --> THEME
     UI_STEPS[src/ui/steps.ts] --> THEME
+    UI_COST[src/ui/cost.ts] --> THEME
+    UI_CONFIRM[src/ui/confirm.ts] --> THEME
+    UI_CANCEL[src/ui/cancel.ts] --> THEME
 
     GENESIS_CTX[src/genesis/context.ts] --> GENESIS_TYPES[src/genesis/types.ts]
     GENESIS_DIGEST[src/genesis/digest.ts] --> GENESIS_TYPES
@@ -315,22 +325,26 @@ graph TD
     GENESIS_DOCS[src/genesis/docs.ts] --> GENESIS_TYPES
     GENESIS_DOCS --> PROMPTS
     GENESIS_SYNC[src/genesis/sync.ts] --> GENESIS_TYPES
+    GENESIS_ESTIMATE[src/genesis/estimate.ts] --> GENESIS_TYPES
+    GENESIS_ESTIMATE --> PROV_TYPES
+    GENESIS_ESTIMATE --> PRICING[src/pricing/index.ts]
+    GENESIS_ESTIMATE --> UTIL_TOKENS[src/util/tokens.ts]
 
     PROV_FACTORY[src/providers/factory.ts] --> CONFIG
     PROV_FACTORY --> PROV_TYPES
     PROV_FACTORY --> PROV_OAI[src/providers/openai-compatible.ts]
+    PROV_FACTORY --> PROV_ANTHROPIC[src/providers/anthropic.ts]
+    PROV_FACTORY --> PROV_OPENROUTER[src/providers/openrouter.ts]
 
     PROV_RETRY --> PROV_TYPES
     PROV_RETRY --> THEME
+    PROV_METERED[src/providers/metered.ts] --> PROV_TYPES
 
     CONFIG --> UTIL_HASH
     CONFIG --> UTIL_ENV[src/util/env.ts]
     GENESIS_CONST --> UTIL_ENV
 
     CMD_BUILTIN --> GENESIS_PIPELINE[genesis pipeline]
-```
-
----
 
 ## Summary of Module Relationships
 
@@ -343,4 +357,8 @@ graph TD
 | `src/prompts` | `src/genesis/planner`, `src/genesis/docs`, `src/genesis/sync` | All prompt templates |
 | `src/providers` | `src/genesis/scope`, `src/genesis/distill`, `src/genesis/planner`, `src/providers/retry` | `LLMProvider`, `createProvider`, `chatWithRetry` |
 | `src/ui` | `src/cli`, `src/commands`, `src/genesis` (via StepRunner) | `startChat`, `StepRunner`, theme constants |
-| `src/util` | `src/config`, `src/genesis/fingerprint`, `src/genesis/constants` | `hashContent`, `envInt` |
+| `src/util` | `src/config`, `src/genesis/fingerprint`, `src/genesis/constants`, `src/genesis/estimate` | `hashContent`, `envInt`, `estimateTokens` |
+| `src/pricing` | `src/genesis/estimate` | `getModelPricing`, `ModelPricing` |
+| `src/ui/cost` | `src/genesis/estimate`, `src/commands/builtins` | `formatCost`, `formatCostRange`, `printCostEstimate` |
+| `src/ui/confirm` | `src/commands/builtins` | `confirm` |
+| `src/ui/cancel` | `src/genesis/scope`, `src/genesis/distill`, `src/genesis/planner` | `CancellationToken`, `createCancellationToken` |

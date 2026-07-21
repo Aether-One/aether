@@ -58,6 +58,9 @@ export async function chatWithRetry(
       lastError = err instanceof Error ? err : new Error(String(err));
       const errorMsg = lastError.message;
 
+      // User cancelled (ESC) — never retry. `cancelled` is set by MeteredProvider.
+      if (request.signal?.aborted || (lastError as { cancelled?: boolean }).cancelled) throw lastError;
+
       // On first rate-limit hit, upgrade to longer retry strategy
       if (isRateLimitError(errorMsg) && maxRetries === baseOpts.maxRetries) {
         maxRetries = RATE_LIMIT_OPTIONS.maxRetries;
@@ -82,7 +85,7 @@ export async function chatWithRetry(
         delay = baseOpts.baseDelay * Math.pow(2, attempt - 1);
       }
 
-      await sleep(delay);
+      await sleep(delay, request.signal);
     }
   }
 
@@ -118,6 +121,23 @@ export function createRetryLogger(): RetryOptions["onRetry"] {
   };
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function abortError(): Error {
+  const err = new Error("Aborted");
+  err.name = "AbortError";
+  return err;
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(abortError());
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(abortError());
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }

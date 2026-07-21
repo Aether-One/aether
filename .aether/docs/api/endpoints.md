@@ -290,4 +290,125 @@ function createProvider(config: AetherConfig): LLMProvider
 
 `aether v0.1.4` (from `package.json` version, injected as `__AETHER_VERSION__` at build).
 
-**Source**: `package.json`, `src/cli/index.ts` → `VERSION`.
+**Source**: `package.json`, `src/cli/index.ts` → `VERSION`.## src/cli/index.ts
+- **Entry point**: `main()` function (async, called at bottom)
+- **Version flag**: `--version` / `-v` prints `aether v${VERSION}` and exits (VERSION from `__AETHER_VERSION__` or `0.0.0-dev`)
+- **Command registration order**:
+  - `registerHelpCommand()` from `../commands/help.js`
+  - `registerBuiltinCommands()` from `../commands/builtins.js`
+  - `registerConfigCommand()` from `../commands/config.js`
+  - `registerCleanCommand()` from `../commands/clean.js`
+  - `registerExcludeCommand()` from `../commands/exclude.js`
+- **Startup UI**:
+  - `isInteractive = process.stdin.isTTY ?? false`
+  - `noAnimation = process.argv.includes("--no-animation")`
+  - If interactive and not `--no-animation`: `await playStartupAnimation()` from `../ui/animation.js`
+  - Else: `printBanner()` from `../ui/animation.js`
+- **Chat entry**: `await startChat()` from `../ui/prompt.js`
+- **Error handling**: Catches errors, writes to stderr, exits with code 1
+
+## src/commands/builtins.ts
+- **Exported function: `registerBuiltinCommands()`** — Registers four built-in CLI commands with the global `registry`.
+- **Command: `genesis`**
+  - Description: "Analyze and document your project with AI"
+  - Usage: `/genesis [path]`
+  - Flags: `--force` (regenerate even if `.aether/docs` exists), `--yes` / `-y` (skip cost confirmation)
+  - Handler flow:
+    - Validates target directory exists and is a directory.
+    - Loads config via `loadConfig(process.cwd())`; exits if missing.
+    - Creates `MeteredProvider` wrapping `createProvider(config)`.
+    - Pings provider; on failure, prints cause-specific error via `formatPingError()`.
+    - Scans project context via `scanContext(targetDir)`; logs omitted file count.
+    - Plans docs via `planDocs(buildPlannerDigest(context), provider, config.model)` with retry spinner.
+    - Prints exclude hint via `printExcludeHint()`.
+    - Estimates cost via `estimateGenesis(context, docsToGenerate.length, pricing)` and prints via `formatEstimate()`.
+    - Prompts confirmation via `promptConfirm()` unless `--yes`.
+    - Sets up `AbortController` + `watchCancelKey()` for ESC cancellation.
+    - Builds shared project context via `buildSharedProjectContext(context, provider, config.model)` with distill progress callbacks.
+    - Generates docs in parallel via `StepRunner.runPooled(GEN_CONCURRENCY, ...)`:
+      - Each doc: builds prompt via `buildDocPrompt(doc, sharedContext)`, calls `chatWithRetry()` with temperature 0.3.
+      - Writes output to `.aether/<doc.outputPath>`.
+    - Writes docs index via `buildDocsIndex(context.name, docsToGenerate)` to `.aether/docs/README.md`.
+    - Writes snapshot via `writeSnapshot(targetDir, {provider, model}, context, docsToGenerate.map(metaFromDefinition))`.
+    - Ensures project README via `ensureProjectReadme(targetDir)`.
+    - Prints elapsed time.
+- **Command: `sync`**
+  - Description: "Refresh only the docs affected by what changed since the last run"
+  - Usage: `/sync [path]`
+  - Flags: `--yes` / `-y` (skip cost confirmation)
+  - Handler flow:
+    - Loads snapshot via `loadSnapshot(targetDir)`; exits if missing (prompts `/genesis` first).
+    - Loads config; creates `MeteredProvider`; pings provider.
+    - Scans context via `scanContext(targetDir)`; diffs fingerprint via `diffFingerprint(snapshot.files, context)`.
+    - If `hasChanges(diff)` false, prints up-to-date message and exits.
+    - Gets git log via `getGitLog(targetDir, snapshot.git.commit)` if snapshot has git commit.
+    - Plans sync via `planSync(buildPlannerDigest(context), diff, snapshot.docs, gitLog, provider, config.model)` with retry spinner.
+    - Builds jobs: `plan.regenerate` (update=true) + `plan.add` (update=false).
+    - If no jobs, advances snapshot via `writeSnapshot()` and exits.
+    - Prints exclude hint.
+    - Estimates cost via `estimateSync(context, refreshDocChars, plan.add.length, pricing)` using existing doc sizes for refresh estimates.
+    - Prompts confirmation unless `--yes`.
+    - Sets up abort controller + cancel key watcher.
+    - Builds shared context via `buildSharedProjectContext()` (same as genesis).
+    - Formats changes via `formatChanges(diff, gitLog)`.
+    - Runs jobs in parallel via `StepRunner.runPooled(GEN_CONCURRENCY, ...)`:
+      - For updates: reads existing doc, calls `refreshDoc(doc, sharedContext, existing, changeText, provider, config.model, signal)`.
+      - For new: calls `chatWithRetry()` with `buildDocPrompt(doc, sharedContext)`.
+      - Writes output.
+    - Merges doc metas via `mergeDocMetas(snapshot.docs, plan.add)`.
+    - Rebuilds index via `buildDocsIndex(context.name, mergedDocs)`.
+    - Writes new snapshot via `writeSnapshot(targetDir, {provider, model}, context, mergedDocs)`.
+    - Ensures project README.
+- **Command: `exit`**
+  - Description: "Exit Aether"
+  - Usage: `/exit`
+  - Handler: prints goodbye message, calls `process.exit(0)`.
+- **Command: `clear`**
+  - Description: "Clear the screen"
+  - Usage: `/clear`
+  - Handler: writes ANSI escape `\x1Bc` to stdout.
+- **Internal helper: `formatPingError(config, ping)`** — Returns cause-specific error string for ping failures (timeout, HTTP 401/403, other).
+- **Internal helper: `printExcludeHint()`** — Prints yellow hint about `/exclude <path>` to reduce scan size/cost.
+- **Internal helper: `showGenesisHelp()`** — Prints detailed usage, flags, requirements, generated doc structure (always/conditional), planner behavior.
+- **Internal helper: `showSyncHelp()`** — Prints usage, flags, how sync works (diff against snapshot, incremental update, never deletes).
+- **Internal helper: `readFileSafe(path)`** — Returns file content or null on error.
+- **Internal helper: `formatError(err)`** — Normalizes error messages: rate limit (429), auth (401/403), timeout/abort, network (ECONNREFUSED/ENOTFOUND), generic fallback (first line, truncated to 120 chars).
+- **Dependencies used** (imported and invoked):
+  - `chalk`, `registry`, `loadConfig`, `ensureProjectReadme`, `GEN_CONCURRENCY`, `createProvider`, `MeteredProvider`, `PingResult`, `chatWithRetry`, `formatRetryLine`, `scanContext`, `buildPlannerDigest`, `planDocs`, `buildSharedProjectContext`, `buildDocsIndex`, `buildDocPrompt`, `getGitLog`, `getModelPricing`, `estimateGenesis`, `estimateSync`, `formatEstimate`, `promptConfirm`, `watchCancelKey`, `loadSnapshot`, `diffFingerprint`, `hasChanges`, `planSync`, `refreshDoc`, `writeSnapshot`, `metaFromDefinition`, `mergeDocMetas`, `formatChanges`, `StepRunner`, `LineSpinner`, `mkdir`, `writeFile`, `readFile`, `existsSync`, `statSync`, `join`, `dirname`, `ACCENT`, `DIM`, `SUCCESS`.
+
+## src/genesis/context.ts
+- **Exported**: `ProjectContext` type (re-exported from `./types.js`), `collectDirectories(rootDir, excludes, maxDepth?)`, `scanContext(rootDir)`, `buildPrompt(context)`.
+- **Constants**:
+  - `CONFIG_FILES` — 13 known config filenames (e.g., `package.json`, `tsconfig.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `requirements.txt`, `Gemfile`, `pom.xml`, `docker-compose.yml`, `Dockerfile`, `.env.example`, `README.md`).
+  - `VISION_FILE_CANDIDATES` — `["CONTEXT.md", "CONTRIBUTING.md", "ARCHITECTURE.md", "VISION.md"]`.
+  - `IGNORED_DIRS` — Set of 18 directory names to skip (e.g., `node_modules`, `.git`, `dist`, `build`, `.next`, `.nuxt`, `.cache`, `coverage`, `target`, `.aether`, `__pycache__`, `.venv`, `venv`, `vendor`, `.turbo`, `.vercel`).
+  - `SOURCE_EXTENSIONS` — Set of 16 source file extensions (e.g., `.ts`, `.tsx`, `.js`, `.jsx`, `.py`, `.rs`, `.go`, `.java`, `.kt`, `.rb`, `.ex`, `.exs`, `.php`, `.swift`, `.vue`, `.svelte`).
+- **`collectDirectories`** — walks `rootDir` up to `maxDepth` (default 6), skips ignored/dot/excluded dirs, returns sorted relative directory paths.
+- **`scanContext(rootDir)`** — returns `ProjectContext` with fields: `name`, `rootDir`, `configFiles[]`, `visionFiles[]`, `entryPoints[]`, `sourceFiles[]`, `directoryTree`, `omittedFiles[]`.
+  - Steps: loads excludes; reads config files (extracts name/description from `package.json`); reads vision files (candidates + `docs/*.md`); builds directory tree; finds entry points (predefined candidate paths); finds all source files ranked by importance, adds until `MAX_TOTAL_CHARS` budget exceeded.
+- **`buildPrompt(context)`** — constructs a markdown prompt with sections: Project Context header, Directory Structure, Product Vision (if any), Configuration Files, Entry Points, Key Source Files, Omitted Files, and a final reminder.
+- **Helpers**:
+  - `safeReadFile(filePath, label, omitted)` — reads file if size ≤ `MAX_FILE_SIZE`, else records in `omitted`.
+  - `buildDirectoryTree(rootDir, maxDepth, excludes)` — ASCII tree with `├──`/`└──` connectors, respects ignores/excludes.
+  - `findVisionFiles(rootDir, excludes)` — checks candidates + `docs/*.md`.
+  - `findEntryPoints(rootDir, excludes)` — checks 20 predefined candidate paths.
+  - `findSourceFiles(rootDir, omitted, excludes)` — walks entire tree (max `MAX_WALK_DEPTH`, max `MAX_FILES_WALKED`), collects files with `SOURCE_EXTENSIONS`, ranks by `getImportanceScore`.
+  - `getImportanceScore(filePath, size)` — scores based on filename keywords (`index`, `main`, `app`, `server`, `router`, `routes`, `config`, `setup`, `types`, `schema`), depth (shallower = higher), size (500–5000 bytes sweet spot).
+- **Dependencies**: `node:fs/promises` (`readFile`, `readdir`, `stat`), `node:fs` (`existsSync`), `node:path` (`join`, `relative`, `extname`, `basename`), `./types.js` (`ProjectContext`), `./constants.js` (`MAX_FILE_SIZE`, `MAX_TOTAL_CHARS`, `MAX_FILES_WALKED`, `MAX_WALK_DEPTH`), `./exclude.js` (`loadExcludes`, `isExcluded`).
+
+## src/ui/prompt.ts
+- **Exported**: `startChat()` — async function that starts the interactive chat loop.
+- **Behavior**:
+  - Loads config via `loadConfig(process.cwd())`; exits with error if missing.
+  - Creates provider via `createProvider(config)` wrapped in `MeteredProvider`.
+  - Pings provider; on failure prints error via `formatPingError()` and exits.
+  - Prints welcome banner with provider/model info.
+  - Enters REPL loop:
+    - Prompts user via `promptInput()` with `>` prompt.
+    - Handles `/exit`, `/clear`, `/help` as built-in commands.
+    - For other input: builds context via `buildChatContext()` (loads `.aether/settings/context.json` if exists), sends to provider via `chatWithRetry()` with temperature 0.7.
+    - Streams response via `chatStream()` with `LineSpinner` for thinking animation.
+    - Prints response with `ACCENT` color.
+    - Handles abort via `AbortController` + `watchCancelKey()`.
+    - Catches errors, formats via `formatError()`, prints in `ERROR` color.
+- **Dependencies**: `chalk`, `loadConfig`, `createProvider`, `MeteredProvider`, `chatWithRetry`, `chatStream`, `formatPingError`, `formatError`, `promptInput`, `watchCancelKey`, `LineSpinner`, `ACCENT`, `DIM`, `ERROR`, `SUCCESS`, `buildChatContext`, `loadSnapshot`, `formatError`.

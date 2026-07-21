@@ -1,32 +1,36 @@
 {
-  "generatedAt": "2026-07-19T09:47:55.860Z",
+  "generatedAt": "2026-07-21T00:50:55.185Z",
   "provider": "openrouter",
   "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
   "git": {
-    "commit": "73c84b4dfb0142d4e7f1628b63bbdc0ce30ef50a",
+    "commit": "a1bbdbe8c1272d16db6ad77b38ffe8805c612d47",
     "branch": "main",
     "dirty": true
   },
   "files": {
     "package.json": {
-      "hash": "fb1b6a811f9602d6f6dca82f9d8801d3f6063953d1abca2c765c12d9cc8d31cc",
-      "size": 918
+      "hash": "f8e6bdef4bf388430dbbfb8f3d42a48295805b82bf8129bb10fb135d3781f956",
+      "size": 948
     },
     "tsconfig.json": {
       "hash": "e9e443d9c4301cbfd3098d0670b14455b1ff4022eba9fbd3fc9241a9786b7e24",
       "size": 504
     },
     "README.md": {
-      "hash": "e9efc17db0fab99c753125d4b6a20d5e8e08eac5fd938603adafe97c8858e9f8",
-      "size": 4417
+      "hash": "20c4b90f3e881f181cd1bf9aba7faab4f392929f1c75d7a29a8bf7bcbdf66b09",
+      "size": 4823
     },
     "CONTRIBUTING.md": {
       "hash": "069620a99982710c6bf52ea1b79de1423a9b4a8dda0ffb3925bbb2ee5bf5149f",
       "size": 2613
     },
     "src/cli/index.ts": {
-      "hash": "c48351d83319a0e4275e00f5f6683a30c948563a8df15a4e1e19306e4db54d1a",
-      "size": 1196
+      "hash": "43a9df09c11bc871701718e4b78c6b03563751e89acb4b184ad8da1a44e6ba71",
+      "size": 1297
+    },
+    "src/pricing/index.ts": {
+      "hash": "5bb0902feaad5ab2955f53e02616e1023c2a28b00d081de58ea65f10d9d8c44e",
+      "size": 4861
     },
     "src/prompts/index.ts": {
       "hash": "e7b381ec545293d2e771a76ddb426a7dd7ee3b228ddc17c72fb95565429f8a47",
@@ -45,12 +49,20 @@
       "size": 214
     },
     "src/providers/types.ts": {
-      "hash": "d8362b3ca1918799b3e8055adf99a8e76b69e733c0d52627d7c81236ddeeee3b",
-      "size": 652
+      "hash": "5d21ccb2a8645f45e78fa24bfa5aae3da7e9d3c7f1fd9a5b49cf3d2f994ef34c",
+      "size": 1056
+    },
+    "src/providers/openrouter.ts": {
+      "hash": "df69fa61d768b0fdd7592bc2e1edfa20a2f0db5284116df38cc011234709c2f1",
+      "size": 483
     },
     "src/commands/config.ts": {
       "hash": "8fb8ebefcf1ce0c763fec669f3ea24344a7d867d28fa964b52a79b306eee5a12",
       "size": 8458
+    },
+    "src/commands/exclude.ts": {
+      "hash": "447df29120427c4b97355e7e7415553c54bc9d8b5ead8c4b71c1956425c470ed",
+      "size": 4065
     },
     "src/commands/help.ts": {
       "hash": "50471c43695ee0ddbee784e9f6b19a4739bbe4cc90258f258a621ae39e5fd7c0",
@@ -80,6 +92,14 @@
       "hash": "43d9a953373cc0373b26f3338574fc403d87e389700e4c7d56b7a934e619232e",
       "size": 4263
     },
+    "src/genesis/estimate.ts": {
+      "hash": "0ea428ba9629d45280044baebafcb95e94d351573a220cc38e33c02d85754d12",
+      "size": 4839
+    },
+    "src/genesis/exclude.ts": {
+      "hash": "30b5f7e116182e72dc5513b3578c2786d34bfc421f5f481e7dfebd1c3945e5ec",
+      "size": 2408
+    },
     "src/genesis/fingerprint.ts": {
       "hash": "4a4c97775b5732c90df161894e3e728419b00536541a70deee722bcbc77f81bf",
       "size": 1927
@@ -89,16 +109,32 @@
       "size": 3209
     },
     "src/providers/factory.ts": {
-      "hash": "21e254a04269c69e2f5397f33a4e66413ed0a310e120cdab8681b00e5cb2873c",
-      "size": 920
+      "hash": "7aab3fba5574f01fa43b60f9b2a57185d7fe7167935b5972edfbe03de49061a3",
+      "size": 979
+    },
+    "src/providers/metered.ts": {
+      "hash": "956c980d1011c49d804c215de9f51f98b661aa27fe5de96d718d00ba3241f9ac",
+      "size": 2097
     },
     "src/providers/retry.ts": {
-      "hash": "a0cd79f874a354170e782cccc996c6882c5de0042322441fcf9c58d93d47b3de",
-      "size": 4042
+      "hash": "e2e48aaeca73dc297ea8de366c7cac4b56939c4622f424e42742dab23127b9b8",
+      "size": 4719
     },
     "src/ui/animation.ts": {
       "hash": "bbb92c5af79cd86c6dd7d8ee820780701895b5b1957e0b345cf8df606aa02939",
       "size": 2100
+    },
+    "src/ui/cancel.ts": {
+      "hash": "2b91572300caba5ce1803c441805dfe8d1f100f06d6332ba36cb38826008ac53",
+      "size": 667
+    },
+    "src/ui/confirm.ts": {
+      "hash": "0a75a40fcc5ee6356ec1b8f77d6a5c5168cdeaede59744b1132bb9a4068a29f4",
+      "size": 1086
+    },
+    "src/ui/cost.ts": {
+      "hash": "f85faa2424509fb83c6c1db11956c1d99b718d80521fd2381a31d6c3b99eddd8",
+      "size": 1488
     },
     "src/util/hash.ts": {
       "hash": "0db0d39f3723ec578589e6d95998805a8f2628e3fefa5031a9ff8e01d5409187",
@@ -169,16 +205,16 @@
       "size": 3063
     },
     "src/commands/builtins.ts": {
-      "hash": "5a88b5fca77af3c1640693b56fe61551f5e08b373e737a4789fc07539fe11ac5",
-      "size": 22628
+      "hash": "9014f8b37dbbd12b22cfd61d1df119899ed8d83dbb929639307a1ae615b697bb",
+      "size": 29522
     },
     "src/commands/clean.ts": {
       "hash": "8110414558d4d68d6602e7070304852bf593cf808ae42c33b04747debf46ce12",
       "size": 13532
     },
     "src/genesis/context.ts": {
-      "hash": "c8241a41298bf0dbbca734ae92150deb87c2732934335d194a2767c9821cda9a",
-      "size": 12988
+      "hash": "7b059ca0375911d53988fea7866b970175553aae38c94ac168dd5ec2553770f1",
+      "size": 14601
     },
     "src/genesis/distill.ts": {
       "hash": "85f86aa200603b1dd9a1b71f4111e96c032ea445a273a6d04f947ff398cb488c",
@@ -193,20 +229,24 @@
       "size": 9751
     },
     "src/genesis/sync.ts": {
-      "hash": "ba90417aedcd570257c5fb1811d8eddea42ce0cdc5670a7c03b23dfdb4a8af4c",
-      "size": 14407
+      "hash": "29215969142ffeff9334931b0abc3f76171be9196aee8a5459d155c5d20351a3",
+      "size": 14534
     },
     "src/prompts/base.ts": {
       "hash": "1065a9590666f5033040569ee00b382e784793f14997f5123cd5bbf19eb438e8",
       "size": 5511
     },
+    "src/providers/anthropic.ts": {
+      "hash": "825bfa047f93714d64058c38f57d6405e212fcafefff2799f8c910d8776b9535",
+      "size": 6338
+    },
     "src/providers/openai-compatible.ts": {
-      "hash": "e951848f25999618a3d71193133858191b7af1e9e0d157c9e8ec5da04e80aaa2",
-      "size": 5102
+      "hash": "b3cc51275f680cc44bd9fc23114bc2e93143804132767120d5ff0899ee5f100e",
+      "size": 6727
     },
     "src/ui/prompt.ts": {
-      "hash": "e2b5b1ef3ab21a7011e493c2d5c4d70bc4b2029e17c3876d2ff1eff1f845fe1a",
-      "size": 5325
+      "hash": "8921d98ba929b21fc1eee562235f46f1643bbff627c9cb098537b23b6c4acdc6",
+      "size": 9722
     },
     "src/ui/steps.ts": {
       "hash": "301ef9f989d54bc46e0a6f176da8c8579404e4d294810a0a0ce3d30744740682",
@@ -219,6 +259,10 @@
     "src/util/env.ts": {
       "hash": "6b066e10d3b6758107ae0dde4c107cb733512836bb9611df074265cad086d386",
       "size": 338
+    },
+    "src/util/tokens.ts": {
+      "hash": "4d6f045ba4143441d729dae1a2542da55ebf68e56a5ada2c42f40c8ab4d624d3",
+      "size": 211
     }
   },
   "docs": [

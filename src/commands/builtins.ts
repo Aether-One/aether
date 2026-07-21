@@ -4,6 +4,7 @@ import { loadConfig } from "../config/index.js";
 import { ensureProjectReadme } from "../config/scaffold.js";
 import { GEN_CONCURRENCY } from "../genesis/constants.js";
 import { createProvider } from "../providers/factory.js";
+import { MeteredProvider } from "../providers/metered.js";
 import type { PingResult } from "../providers/types.js";
 import { chatWithRetry, formatRetryLine } from "../providers/retry.js";
 import { scanContext } from "../genesis/context.js";
@@ -12,6 +13,11 @@ import { planDocs } from "../genesis/planner.js";
 import { buildSharedProjectContext } from "../genesis/scope.js";
 import { buildDocsIndex, buildDocPrompt } from "../genesis/docs.js";
 import { getGitLog } from "../genesis/fingerprint.js";
+import { getModelPricing } from "../pricing/index.js";
+import { estimateGenesis, estimateSync } from "../genesis/estimate.js";
+import { formatEstimate } from "../ui/cost.js";
+import { promptConfirm } from "../ui/confirm.js";
+import { watchCancelKey } from "../ui/cancel.js";
 import {
   loadSnapshot,
   diffFingerprint,
@@ -54,6 +60,14 @@ function formatPingError(config: { provider: string; baseUrl: string }, ping: Pi
   );
 }
 
+// Nudges users to trim big, undocumentable paths — shown on every genesis/sync.
+function printExcludeHint(): void {
+  process.stdout.write(
+    `\n     ${chalk.yellow("💡")} ${DIM("Large paths that don't need documenting? Exclude them with")} ${ACCENT("/exclude <path>")}\n` +
+      `        ${DIM("to shrink the scan and lower the cost.")}\n`,
+  );
+}
+
 export function registerBuiltinCommands(): void {
   registry.register({
     name: "genesis",
@@ -70,7 +84,9 @@ export function registerBuiltinCommands(): void {
 
       const tokens = trimmedArgs.split(/\s+/).filter(Boolean);
       const force = tokens.includes("--force");
-      const targetDir = tokens.filter((t) => t !== "--force").join(" ") || process.cwd();
+      const skipConfirm = tokens.includes("--yes") || tokens.includes("-y");
+      const flags = new Set(["--force", "--yes", "-y"]);
+      const targetDir = tokens.filter((t) => !flags.has(t)).join(" ") || process.cwd();
 
       // Validate path
       if (!existsSync(targetDir)) {
@@ -100,7 +116,8 @@ export function registerBuiltinCommands(): void {
         return;
       }
 
-      const provider = createProvider(config);
+      // Metered so one shared cancel signal reaches every model call without threading.
+      const provider = new MeteredProvider(createProvider(config));
 
       try {
         // Phase 1: Connect + Scan + Plan (with temporary runner)
@@ -141,87 +158,124 @@ export function registerBuiltinCommands(): void {
           throw err;
         }
 
-        // Build ONE complete context, shared by every doc. If the whole project
-        // fits, that's the real code; if not, it's distilled once here (not per
-        // doc) so the expensive pass runs a single time and every doc stays complete.
-        const ctxSpinner = new LineSpinner("Preparing project context...");
-        ctxSpinner.start();
-        let sharedContext: string;
+        printExcludeHint();
+
+        // Cost estimate + confirmation gate, before any heavy spend.
+        const pricing = await getModelPricing(config);
+        const estimate = estimateGenesis(context, docsToGenerate.length, pricing);
+        const distillCalls = estimate.calls - docsToGenerate.length;
+        const docLabel =
+          distillCalls > 0 ? `${distillCalls} distill + ${docsToGenerate.length} docs` : `${docsToGenerate.length} docs`;
+        process.stdout.write(`\n${formatEstimate(config, estimate, docLabel)}\n`);
+
+        if (!skipConfirm) {
+          const proceed = await promptConfirm(`     ${DIM("Proceed?")} ${ACCENT("[Y/n]")} `);
+          if (!proceed) {
+            process.stdout.write(`\n     ${DIM("Cancelled — nothing was generated.")}\n\n`);
+            return;
+          }
+        }
+        process.stdout.write(`     ${DIM("Press")} ${ACCENT("ESC")} ${DIM("to cancel.")}\n`);
+
+        const controller = new AbortController();
+        provider.setSignal(controller.signal);
+        const stopCancel = watchCancelKey(() => controller.abort());
+
         try {
-          sharedContext = await buildSharedProjectContext(context, provider, config.model, {
-            onStart: (batches) => {
-              ctxSpinner.log(
-                `     ${DIM(`This project is large — condensing it in ${batches} parts so nothing is lost.`)}`,
+          // Build ONE complete context, shared by every doc. If the whole project
+          // fits, that's the real code; if not, it's distilled once here (not per
+          // doc) so the expensive pass runs a single time and every doc stays complete.
+          const ctxSpinner = new LineSpinner("Preparing project context...");
+          ctxSpinner.start();
+          let sharedContext: string;
+          try {
+            sharedContext = await buildSharedProjectContext(context, provider, config.model, {
+              onStart: (batches) => {
+                ctxSpinner.log(
+                  `     ${DIM(`This project is large — condensing it in ${batches} parts so nothing is lost.`)}`,
+                );
+                ctxSpinner.log(`     ${DIM("This can take a few minutes on slower models. Hang tight.")}`);
+                ctxSpinner.setLabel(`Distilling project (${batches} chunk${batches > 1 ? "s" : ""})...`);
+              },
+              onBatch: (index, total) => ctxSpinner.setLabel(`Distilling project ${index}/${total}...`),
+            });
+            ctxSpinner.succeed();
+          } catch (err) {
+            ctxSpinner.fail();
+            if (controller.signal.aborted) {
+              process.stdout.write(`\n     ${DIM("Cancelled — nothing was generated.")}\n\n`);
+              return;
+            }
+            throw err;
+          }
+
+          // Phase 2: Generate docs with step runner
+          const runner = new StepRunner("generating docs");
+          for (const doc of docsToGenerate) {
+            runner.addStep(doc.label);
+          }
+
+          runner.start();
+          const startTime = Date.now();
+          const aetherDir = join(targetDir, ".aether");
+
+          // Docs are independent — generate several at once. Each is still a slow
+          // model call, but the wall-clock drops by the concurrency factor.
+          // Tune with AETHER_GEN_CONCURRENCY.
+          try {
+            await runner.runPooled(GEN_CONCURRENCY, async (i) => {
+              const doc = docsToGenerate[i];
+              // Every doc is generated from the same complete context.
+              const prompt = buildDocPrompt(doc, sharedContext);
+              const response = await chatWithRetry(
+                provider,
+                {
+                  model: config.model,
+                  messages: [{ role: "user", content: prompt }],
+                  temperature: 0.3,
+                  signal: controller.signal,
+                },
+                {
+                  onRetry: (attempt, maxRetries, _error) =>
+                    runner.setDetail(i, `retry ${attempt}/${maxRetries} — rate limited`),
+                },
               );
-              ctxSpinner.log(`     ${DIM("This can take a few minutes on slower models. Hang tight.")}`);
-              ctxSpinner.setLabel(`Distilling project (${batches} chunk${batches > 1 ? "s" : ""})...`);
-            },
-            onBatch: (index, total) => ctxSpinner.setLabel(`Distilling project ${index}/${total}...`),
-          });
-          ctxSpinner.succeed();
-        } catch (err) {
-          ctxSpinner.fail();
-          throw err;
+
+              // Write file
+              runner.setWriting(i);
+              const outputPath = join(aetherDir, doc.outputPath);
+              await mkdir(dirname(outputPath), { recursive: true });
+              await writeFile(outputPath, response.content, "utf-8");
+            });
+          } catch (err) {
+            if (controller.signal.aborted) {
+              runner.error("Cancelled — partial docs may have been written.");
+              return;
+            }
+            runner.error(`Failed generating docs: ${formatError(err)}`);
+            return;
+          }
+
+          // Write the docs index (docs/README.md) — deterministic, no LLM call.
+          const indexPath = join(aetherDir, "docs", "README.md");
+          await mkdir(dirname(indexPath), { recursive: true });
+          await writeFile(indexPath, buildDocsIndex(context.name, docsToGenerate), "utf-8");
+
+          // Snapshot this run — the "point" /sync diffs against (file fingerprint + doc set).
+          await writeSnapshot(
+            targetDir,
+            { provider: config.provider, model: config.model },
+            context,
+            docsToGenerate.map(metaFromDefinition),
+          );
+          await ensureProjectReadme(targetDir);
+
+          const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+          runner.finish(`Genesis complete in ${elapsed}s → .aether/docs/`);
+        } finally {
+          stopCancel();
+          provider.setSignal(undefined);
         }
-
-        // Phase 2: Generate docs with step runner
-        const runner = new StepRunner("generating docs");
-        for (const doc of docsToGenerate) {
-          runner.addStep(doc.label);
-        }
-
-        runner.start();
-        const startTime = Date.now();
-        const aetherDir = join(targetDir, ".aether");
-
-        // Docs are independent — generate several at once. Each is still a slow
-        // model call, but the wall-clock drops by the concurrency factor.
-        // Tune with AETHER_GEN_CONCURRENCY.
-        try {
-          await runner.runPooled(GEN_CONCURRENCY, async (i) => {
-            const doc = docsToGenerate[i];
-            // Every doc is generated from the same complete context.
-            const prompt = buildDocPrompt(doc, sharedContext);
-            const response = await chatWithRetry(
-              provider,
-              {
-                model: config.model,
-                messages: [{ role: "user", content: prompt }],
-                temperature: 0.3,
-              },
-              {
-                onRetry: (attempt, maxRetries, _error) =>
-                  runner.setDetail(i, `retry ${attempt}/${maxRetries} — rate limited`),
-              },
-            );
-
-            // Write file
-            runner.setWriting(i);
-            const outputPath = join(aetherDir, doc.outputPath);
-            await mkdir(dirname(outputPath), { recursive: true });
-            await writeFile(outputPath, response.content, "utf-8");
-          });
-        } catch (err) {
-          runner.error(`Failed generating docs: ${formatError(err)}`);
-          return;
-        }
-
-        // Write the docs index (docs/README.md) — deterministic, no LLM call.
-        const indexPath = join(aetherDir, "docs", "README.md");
-        await mkdir(dirname(indexPath), { recursive: true });
-        await writeFile(indexPath, buildDocsIndex(context.name, docsToGenerate), "utf-8");
-
-        // Snapshot this run — the "point" /sync diffs against (file fingerprint + doc set).
-        await writeSnapshot(
-          targetDir,
-          { provider: config.provider, model: config.model },
-          context,
-          docsToGenerate.map(metaFromDefinition),
-        );
-        await ensureProjectReadme(targetDir);
-
-        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-        runner.finish(`Genesis complete in ${elapsed}s → .aether/docs/`);
       } catch (err) {
         process.stdout.write(`\n\n${chalk.red("  ✗")} ${formatError(err)}\n\n`);
       }
@@ -240,7 +294,10 @@ export function registerBuiltinCommands(): void {
         return;
       }
 
-      const targetDir = trimmedArgs || process.cwd();
+      const tokens = trimmedArgs.split(/\s+/).filter(Boolean);
+      const skipConfirm = tokens.includes("--yes") || tokens.includes("-y");
+      const flags = new Set(["--yes", "-y"]);
+      const targetDir = tokens.filter((t) => !flags.has(t)).join(" ") || process.cwd();
       if (!existsSync(targetDir) || !statSync(targetDir).isDirectory()) {
         process.stdout.write(`\n${chalk.red("  ✗")} Directory not found: ${targetDir}\n\n`);
         return;
@@ -263,7 +320,7 @@ export function registerBuiltinCommands(): void {
         return;
       }
 
-      const provider = createProvider(config);
+      const provider = new MeteredProvider(createProvider(config));
 
       try {
         // Connect
@@ -315,75 +372,121 @@ export function registerBuiltinCommands(): void {
           return;
         }
 
-        // Same shared context as genesis, so refreshed docs stay complete and consistent.
-        const ctxSpinner = new LineSpinner("Preparing project context...");
-        ctxSpinner.start();
-        let sharedContext: string;
-        try {
-          sharedContext = await buildSharedProjectContext(context, provider, config.model, {
-            onStart: (batches) => {
-              ctxSpinner.log(`     ${DIM(`This project is large — condensing it in ${batches} parts so nothing is lost.`)}`);
-              ctxSpinner.setLabel(`Distilling project (${batches} chunk${batches > 1 ? "s" : ""})...`);
-            },
-            onBatch: (index, total) => ctxSpinner.setLabel(`Distilling project ${index}/${total}...`),
-          });
-          ctxSpinner.succeed();
-        } catch (err) {
-          ctxSpinner.fail();
-          throw err;
+        printExcludeHint();
+
+        // Cost estimate + confirmation gate. Real doc sizes sharpen the estimate.
+        const pricing = await getModelPricing(config);
+        const refreshDocChars = plan.regenerate.map((doc) => {
+          const p = join(targetDir, ".aether", doc.outputPath);
+          return existsSync(p) ? statSync(p).size : 0;
+        });
+        const estimate = estimateSync(context, refreshDocChars, plan.add.length, pricing);
+        const distillCalls = estimate.calls - jobs.length;
+        const workLabel = [
+          distillCalls > 0 ? `${distillCalls} distill` : "",
+          plan.regenerate.length > 0 ? `${plan.regenerate.length} refresh` : "",
+          plan.add.length > 0 ? `${plan.add.length} new` : "",
+        ]
+          .filter(Boolean)
+          .join(" + ");
+        process.stdout.write(`\n${formatEstimate(config, estimate, workLabel)}\n`);
+
+        if (!skipConfirm) {
+          const proceed = await promptConfirm(`     ${DIM("Proceed?")} ${ACCENT("[Y/n]")} `);
+          if (!proceed) {
+            process.stdout.write(`\n     ${DIM("Cancelled — nothing was updated.")}\n\n`);
+            return;
+          }
         }
+        process.stdout.write(`     ${DIM("Press")} ${ACCENT("ESC")} ${DIM("to cancel.")}\n`);
 
-        // Refreshed docs are patched in update-mode — the model gets the current doc
-        // and only revises what the change touched; nothing is deleted. New docs are
-        // generated from scratch.
-        const changeText = formatChanges(diff, gitLog);
-        const runner = new StepRunner("updating docs");
-        for (const { doc } of jobs) runner.addStep(doc.label);
-        runner.start();
-        const startTime = Date.now();
-        const aetherDir = join(targetDir, ".aether");
+        const controller = new AbortController();
+        provider.setSignal(controller.signal);
+        const stopCancel = watchCancelKey(() => controller.abort());
 
         try {
-          await runner.runPooled(GEN_CONCURRENCY, async (i) => {
-            const { doc, update } = jobs[i];
-            const outputPath = join(aetherDir, doc.outputPath);
-            const existing = update ? await readFileSafe(outputPath) : null;
-
-            let content: string;
-            if (existing) {
-              // Section-level patch: rewrite only the affected sections, keep the rest.
-              content = await refreshDoc(doc, sharedContext, existing, changeText, provider, config.model);
-            } else {
-              const response = await chatWithRetry(provider, {
-                model: config.model,
-                messages: [{ role: "user", content: buildDocPrompt(doc, sharedContext) }],
-                temperature: 0.3,
-              }, {
-                onRetry: (attempt, maxRetries, _error) =>
-                  runner.setDetail(i, `retry ${attempt}/${maxRetries} — rate limited`),
-              });
-              content = response.content;
+          // Same shared context as genesis, so refreshed docs stay complete and consistent.
+          const ctxSpinner = new LineSpinner("Preparing project context...");
+          ctxSpinner.start();
+          let sharedContext: string;
+          try {
+            sharedContext = await buildSharedProjectContext(context, provider, config.model, {
+              onStart: (batches) => {
+                ctxSpinner.log(`     ${DIM(`This project is large — condensing it in ${batches} parts so nothing is lost.`)}`);
+                ctxSpinner.setLabel(`Distilling project (${batches} chunk${batches > 1 ? "s" : ""})...`);
+              },
+              onBatch: (index, total) => ctxSpinner.setLabel(`Distilling project ${index}/${total}...`),
+            });
+            ctxSpinner.succeed();
+          } catch (err) {
+            ctxSpinner.fail();
+            if (controller.signal.aborted) {
+              process.stdout.write(`\n     ${DIM("Cancelled — nothing was updated.")}\n\n`);
+              return;
             }
+            throw err;
+          }
 
-            runner.setWriting(i);
-            await mkdir(dirname(outputPath), { recursive: true });
-            await writeFile(outputPath, content, "utf-8");
-          });
-        } catch (err) {
-          runner.error(`Failed updating docs: ${formatError(err)}`);
-          return;
+          // Refreshed docs are patched in update-mode — the model gets the current doc
+          // and only revises what the change touched; nothing is deleted. New docs are
+          // generated from scratch.
+          const changeText = formatChanges(diff, gitLog);
+          const runner = new StepRunner("updating docs");
+          for (const { doc } of jobs) runner.addStep(doc.label);
+          runner.start();
+          const startTime = Date.now();
+          const aetherDir = join(targetDir, ".aether");
+
+          try {
+            await runner.runPooled(GEN_CONCURRENCY, async (i) => {
+              const { doc, update } = jobs[i];
+              const outputPath = join(aetherDir, doc.outputPath);
+              const existing = update ? await readFileSafe(outputPath) : null;
+
+              let content: string;
+              if (existing) {
+                // Section-level patch: rewrite only the affected sections, keep the rest.
+                content = await refreshDoc(doc, sharedContext, existing, changeText, provider, config.model, controller.signal);
+              } else {
+                const response = await chatWithRetry(provider, {
+                  model: config.model,
+                  messages: [{ role: "user", content: buildDocPrompt(doc, sharedContext) }],
+                  temperature: 0.3,
+                  signal: controller.signal,
+                }, {
+                  onRetry: (attempt, maxRetries, _error) =>
+                    runner.setDetail(i, `retry ${attempt}/${maxRetries} — rate limited`),
+                });
+                content = response.content;
+              }
+
+              runner.setWriting(i);
+              await mkdir(dirname(outputPath), { recursive: true });
+              await writeFile(outputPath, content, "utf-8");
+            });
+          } catch (err) {
+            if (controller.signal.aborted) {
+              runner.error("Cancelled — partial updates may have been written.");
+              return;
+            }
+            runner.error(`Failed updating docs: ${formatError(err)}`);
+            return;
+          }
+
+          // Merge doc set, rebuild the index, and snapshot the new point.
+          const mergedDocs = mergeDocMetas(snapshot.docs, plan.add);
+          const indexPath = join(aetherDir, "docs", "README.md");
+          await mkdir(dirname(indexPath), { recursive: true });
+          await writeFile(indexPath, buildDocsIndex(context.name, mergedDocs), "utf-8");
+          await writeSnapshot(targetDir, { provider: config.provider, model: config.model }, context, mergedDocs);
+          await ensureProjectReadme(targetDir);
+
+          const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+          runner.finish(`Sync complete in ${elapsed}s — ${plan.regenerate.length} refreshed, ${plan.add.length} added`);
+        } finally {
+          stopCancel();
+          provider.setSignal(undefined);
         }
-
-        // Merge doc set, rebuild the index, and snapshot the new point.
-        const mergedDocs = mergeDocMetas(snapshot.docs, plan.add);
-        const indexPath = join(aetherDir, "docs", "README.md");
-        await mkdir(dirname(indexPath), { recursive: true });
-        await writeFile(indexPath, buildDocsIndex(context.name, mergedDocs), "utf-8");
-        await writeSnapshot(targetDir, { provider: config.provider, model: config.model }, context, mergedDocs);
-        await ensureProjectReadme(targetDir);
-
-        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-        runner.finish(`Sync complete in ${elapsed}s — ${plan.regenerate.length} refreshed, ${plan.add.length} added`);
       } catch (err) {
         process.stdout.write(`\n\n${chalk.red("  ✗")} ${formatError(err)}\n\n`);
       }
@@ -416,7 +519,10 @@ function showGenesisHelp(): void {
   process.stdout.write(`     ${DIM("Usage:")}\n`);
   process.stdout.write(`       /genesis              ${DIM("— analyze current directory")}\n`);
   process.stdout.write(`       /genesis <path>       ${DIM("— analyze a specific directory")}\n`);
-  process.stdout.write(`       /genesis --force      ${DIM("— regenerate even if .aether/docs already exists")}\n\n`);
+  process.stdout.write(`       /genesis --force      ${DIM("— regenerate even if .aether/docs already exists")}\n`);
+  process.stdout.write(`       /genesis --yes        ${DIM("— skip the cost estimate confirmation (for automation)")}\n\n`);
+  process.stdout.write(`     ${DIM("Before generating, genesis shows an estimated token/cost breakdown and")}\n`);
+  process.stdout.write(`     ${DIM("asks to proceed. Press")} ESC ${DIM("during a run to cancel.")}\n\n`);
   process.stdout.write(`     ${DIM("Requirements:")}\n`);
   process.stdout.write(`       Configure a provider first with /config\n\n`);
   process.stdout.write(`     ${DIM("If docs already exist, genesis will point you to")} /sync ${DIM("instead")}\n`);
@@ -460,7 +566,10 @@ function showSyncHelp(): void {
   process.stdout.write(`     Refresh docs after the project changed — without regenerating everything.\n\n`);
   process.stdout.write(`     ${DIM("Usage:")}\n`);
   process.stdout.write(`       /sync              ${DIM("— sync the current directory")}\n`);
-  process.stdout.write(`       /sync <path>       ${DIM("— sync a specific directory")}\n\n`);
+  process.stdout.write(`       /sync <path>       ${DIM("— sync a specific directory")}\n`);
+  process.stdout.write(`       /sync --yes        ${DIM("— skip the cost estimate confirmation (for automation)")}\n\n`);
+  process.stdout.write(`     ${DIM("Before updating, sync shows an estimated token/cost breakdown and asks")}\n`);
+  process.stdout.write(`     ${DIM("to proceed. Press")} ESC ${DIM("during a run to cancel.")}\n\n`);
   process.stdout.write(`     ${DIM("How it works:")}\n`);
   process.stdout.write(`       Diffs the project against the last ${ACCENT("/genesis")} snapshot, then refreshes\n`);
   process.stdout.write(`       only the docs affected by what changed and adds new ones if needed.\n`);

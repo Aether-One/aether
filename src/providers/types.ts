@@ -8,6 +8,8 @@ export interface ChatRequest {
   model: string;
   temperature?: number;
   maxTokens?: number;
+  /** Aborts the in-flight request (e.g. user pressed ESC). Separate from the idle timeout. */
+  signal?: AbortSignal;
 }
 
 export interface ChatResponse {
