@@ -16,9 +16,7 @@ The product vision (from README.md and CONTRIBUTING.md) frames this as a **unive
 - **Explain** → the project speaks (knowledge queries) — *planned, not built*
 - **Export** → the project connects (AI integrations) — *planned, not built*
 
-Today, only **Genesis** and **Sync** are implemented. The rest are roadmap items.
-
----
+Today, **Genesis**, **Sync**, **Config**, and **Clean** are implemented. The rest are roadmap items.
 
 ## Mental Model: How the Pieces Fit Together
 
@@ -26,12 +24,12 @@ Think of Aether as a **pipeline that turns a codebase into structured documentat
 
 ### The Core Pipeline (Genesis)
 
-```
+ 
 scanContext() → buildPlannerDigest() → planDocs() → buildSharedProjectContext() → generate docs in parallel
      │                │                    │                    │                        │
      ▼                ▼                    ▼                    ▼                        ▼
 ProjectContext   Digest string         DocDefinition[]      Shared context string    .aether/docs/*.md
-```
+ 
 
 1. **Scan** (`genesis/context.ts`) — Walks the target directory, collects config files, vision files (CONTEXT.md, ARCHITECTURE.md, etc.), entry points, and source files. Produces a `ProjectContext` with a directory tree and importance-ranked source files. Respects hard limits (`MAX_FILES_WALKED=10k`, `MAX_TOTAL_CHARS=2M`, `MAX_WALK_DEPTH=12`).
 
@@ -45,14 +43,20 @@ ProjectContext   Digest string         DocDefinition[]      Shared context strin
 
 ### The Sync Pipeline
 
-```
+ 
 /sync reads snapshot → scanContext → diffFingerprint → planSync (LLM) → refresh/add docs → write new snapshot
-```
+ 
 
 - **Snapshot** (`genesis/sync.ts`) stores: git commit, file fingerprints (SHA256 + size), and metadata for each generated doc.
 - **Diff** compares current fingerprints vs snapshot. Only changed files trigger doc updates.
 - **PlanSync** asks the LLM which existing docs need refresh and which new catalog docs should be added.
 - **Refresh** uses `DOC_UPDATE_INSTRUCTIONS` (smallest-change editing) or `SECTION_PATCH_INSTRUCTIONS` (section-level patches).
+
+### Cost Estimation & Metering
+
+- **Pricing** (`pricing/index.ts`) — Fetches live model pricing from OpenRouter (cached 24h) with a static fallback table for 10 common models. Returns per-token input/output costs.
+- **Estimation** (`genesis/estimate.ts`) — Computes token counts and cost ranges for genesis and sync runs before any LLM calls. Used to show the user a cost estimate and prompt for confirmation.
+- **Metering** (`providers/metered.ts`) — Wraps any `LLMProvider` to track actual token usage (prompt, completion, total) and call counts across the session. Falls back to estimation if the provider doesn't return usage.
 
 ### The CLI Shell
 
@@ -60,14 +64,16 @@ ProjectContext   Digest string         DocDefinition[]      Shared context strin
 - **Interactive Chat** (`ui/prompt.ts`) — Readline-based REPL with `/` command dropdown (ANSI cursor tricks), free-text keyword matching, and rotating tips.
 - **Progress UI** (`ui/steps.ts`) — `StepRunner` with pooled concurrency and per-step spinners; `LineSpinner` for single long-running tasks.
 - **Startup** (`ui/animation.ts`) — Animated logo on TTY, static banner otherwise.
+- **Cancellation** (`ui/cancel.ts`) — Raw-mode stdin listener for ESC/q/Ctrl+C; integrates with `AbortController` to cancel in-flight LLM calls.
+- **Confirmation** (`ui/confirm.ts`) — Single-key (y/n) prompts with TTY raw mode; non-TTY falls back to default.
+- **Cost Display** (`ui/cost.ts`) — Formats USD amounts and multi-line cost estimates with provider/model, token counts, and cost ranges.
 
 ### Configuration & Providers
 
 - **Config Precedence** (`config/index.ts`): global default → global project entry → in-repo `.aether/config.json` → `AETHER_API_KEY` env var.
 - **Providers** (`providers/factory.ts`) — All four (OpenAI, Anthropic, Gemini, OpenRouter) use `OpenAICompatibleProvider`. *There's a TODO in the code noting Anthropic's API format differs.*
+- **OpenRouter Provider** (`providers/openrouter.ts`) — Extends `OpenAICompatibleProvider` and disables reasoning tokens via `providerParams()`.
 - **Retry Logic** (`providers/retry.ts`) — Exponential backoff with special handling for 429 (rate limit): upgrades max retries, respects `Retry-After` headers, minimum 15s base delay.
-
----
 
 ## Where Things Live: "I Want to Change X → Look in Y"
 
@@ -77,6 +83,7 @@ ProjectContext   Digest string         DocDefinition[]      Shared context strin
 | Add a new document type (catalog) | `genesis/docs.ts` (add to `DOC_DEFINITIONS`), `prompts/docs/` (new prompt), `genesis/planner.ts` (add to conditional IDs) | Must update planner's known catalog IDs |
 | Modify an existing doc's prompt | `prompts/docs/<name>.ts` | Prompts are pure string templates; imported in `genesis/docs.ts` |
 | Change how context is scanned | `genesis/context.ts` | `CONFIG_FILES`, `VISION_FILE_CANDIDATES`, `SOURCE_EXTENSIONS`, `IGNORED_DIRS` are constants at top |
+| **Manage excluded paths** | `genesis/exclude.ts` + `commands/exclude.ts` | `loadExcludes()`, `addExclude()`, `removeExclude()`, `isExcluded()`; stored in `.aether/settings/exclude.json` |
 | Adjust distillation behavior | `genesis/distill.ts` | `chunkBudget`, `DISTILL_CONCURRENCY`, `distillInstruction()` |
 | Change planner logic | `genesis/planner.ts` | `CORE_IDS`, `MAX_CUSTOM_DOCS`, `parsePlan()`, `extractJsonArray()` |
 | Modify sync diffing/refresh | `genesis/sync.ts` | `diffFingerprint`, `planSync`, `refreshDoc`, `formatChanges` |
@@ -84,8 +91,12 @@ ProjectContext   Digest string         DocDefinition[]      Shared context strin
 | Change config precedence/loading | `config/index.ts` | `loadConfig()`, `saveConfig()`, `projectId()`, `getProjectCacheDir()` |
 | Tweak CLI UX (colors, spinner, tips) | `ui/theme.ts`, `ui/steps.ts`, `ui/prompt.ts` | `TIPS` array in `prompt.ts`; `SPINNER_FRAMES` in `steps.ts` |
 | Change global cache/config location | `config/index.ts` | `getGlobalDir()` → `~/.aether` |
-
----
+| Modify cost estimation logic | `genesis/estimate.ts` | Token ratios, output multipliers, distill thresholds |
+| Change pricing source/fallback | `pricing/index.ts` | OpenRouter fetch, static table, cache TTL |
+| Adjust metering/usage tracking | `providers/metered.ts` | `UsageTotals`, `estimateTokens()` fallback |
+| Customize cancellation behavior | `ui/cancel.ts` | `watchCancelKey()` key bindings |
+| Change confirmation UX | `ui/confirm.ts` | `promptConfirm()` fallback logic |
+| Format cost display differently | `ui/cost.ts` | `formatUSD()`, `formatEstimate()` |
 
 ## Key Decisions & The Reasoning
 
@@ -99,14 +110,11 @@ ProjectContext   Digest string         DocDefinition[]      Shared context strin
 | **Global config at `~/.aether/config.json` with per-project entries** | API keys stay out of repo; multiple projects share one global config; project ID = `basename-sha1(path)[:12]` | Stable; `projectId()` is used for cache isolation too |
 | **No test suite** | Not in `package.json`, no test files in structure | **This is a gap** — adding tests would be high-value |
 | **TypeScript strict mode, ESM, Node 20+** | Modern baseline; `tsconfig.json` enforces strictness | Non-negotiable for this codebase |
-
-**Decisions that should not change casually:**
-- The `ProjectContext` shape (`genesis/types.ts`) — downstream consumers (planner, distill, docs, sync) all depend on it.
-- The `DocDefinition` catalog order in `genesis/docs.ts` — generation order matches `SECTION_ORDER`; planner expects specific IDs.
-- Config precedence chain in `config/index.ts` — changing it breaks existing user setups.
-- Distillation cache format (`DistillCache` in `genesis/types.ts`) — model field gates cache reuse.
-
----
+| **Cost estimation before every AI run** | Users see a cost range (low/high) and must confirm unless `--yes`; prevents surprise bills | Core UX — unlikely to change |
+| **Metered provider wraps all LLM calls** | Tracks actual usage across genesis/sync; falls back to estimation if provider omits usage | Stable; enables post-run cost reporting |
+| **OpenRouter as pricing source** | Single source for 100+ models; 24h cache avoids rate limits; static fallback for offline | Could add more sources if needed |
+| **Cancellation via raw stdin + AbortController** | Works in TTY; propagates to in-flight `chat()`/`chatStream()` calls | Stable; `watchCancelKey()` is reusable |
+| **Single-key confirmation (y/n/ESC)** | Fast, no Enter required; non-TTY falls back to default | Stable; `promptConfirm()` is reusable |
 
 ## Making Your First Change: Walkthrough
 
@@ -180,7 +188,7 @@ npm run build
 
 4. **No tests exist** — `package.json` has no test script, no test files in `src/`. Any refactor is manual verification only. Adding a test harness would be a major contribution.
 
-5. **Command registration order matters** — In `cli/index.ts`, commands register in this sequence: `help`, `builtins`, `config`, `clean`. The registry is a `Map`; later registrations with same name would overwrite (but none do).
+5. **Command registration order matters** — In `cli/index.ts`, commands register in this sequence: `help`, `builtins`, `config`, `clean`, `exclude`. The registry is a `Map`; later registrations with same name would overwrite (but none do).
 
 6. **Free-text in chat is keyword-matched, not LLM-powered** — `ui/prompt.ts` `respond()` matches lowercase input against hardcoded keyword arrays (`help|ajuda|comando`, `genesis|analisa|documenta`, etc.). It's not an AI chat.
 
@@ -192,7 +200,17 @@ npm run build
 
 10. **Custom docs are limited to 5** — `MAX_CUSTOM_DOCS = 5` in `planner.ts`. The planner can propose more but they're truncated.
 
----
+11. **Cost estimation uses heuristics, not exact counts** — `estimateGenesis()` and `estimateSync()` approximate tokens from chars (÷4), apply output multipliers (0.7–1.3×), and assume distillation when context exceeds budget. Actual usage may differ.
+
+12. **Pricing cache is 24h** — `pricing/index.ts` caches OpenRouter model list for 24h. New models or price changes won't reflect until cache expires or is manually cleared (`/clean cache`).
+
+13. **Metered provider estimates tokens if provider omits usage** — `estimateTokens()` uses a rough 4 chars/token heuristic. For accurate post-run costs, use providers that return `usage` in responses.
+
+14. **Cancellation only works in TTY** — `watchCancelKey()` enables raw mode on stdin; if not a TTY, ESC/q/Ctrl+C are not captured. The `AbortController` signal is still passed to LLM calls but cannot be triggered interactively.
+
+15. **Confirmation defaults to `true` in non-TTY** — `promptConfirm()` returns the fallback (default `true`) when stdin is not a TTY. Scripts piping input will auto-confirm unless you pass `--yes` explicitly.
+
+16. **Excluded paths are respected during scan and sync** — `genesis/context.ts` and `genesis/sync.ts` both call `isExcluded()` from `genesis/exclude.ts`. Add exclusions via `/exclude <path>` or type `@` in the prompt to pick from a dropdown. Exclusions persist in `.aether/settings/exclude.json` per project.
 
 ## Final Note
 

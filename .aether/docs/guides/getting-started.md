@@ -13,14 +13,13 @@ No other runtimes, databases, or Docker are required.
 
 ## Install
 
-```bash
+ bash
 # Clone the repository
 git clone https://github.com/aether-one/aether.git
 cd aether
 
 # Install dependencies
 npm install
-```
 
 ## Configuration
 
@@ -31,41 +30,46 @@ If you want to use AI-powered documentation generation, you'll need an API key f
 ## Run it
 
 ### Development mode (hot reload via tsx)
-```bash
+ bash
 npm run dev
-```
-This starts the interactive CLI directly from TypeScript source. You'll see a startup animation (unless you pass `--no-animation`), then a prompt where you can type `/genesis`, `/config`, `/help`, etc.
+ 
+
+This starts the interactive CLI directly from TypeScript source. You'll see a startup animation (unless you pass `--no-animation`), then a prompt where you can type `/genesis`, `/config`, `/help`, `/exclude`, `/clean`, `/exit`, `/clear`, etc.
 
 ### Type-check only
-```bash
+ bash
 npm run typecheck
-```
+ 
+
 Runs `tsc --noEmit` — useful before committing.
 
 ### Production build
-```bash
+ bash
 npm run build
-```
+ 
+
 Compiles TypeScript to `dist/`. The binary entry point is `dist/cli/index.js`.
 
 ### Run built CLI
-```bash
+ bash
 npm start
-```
+ 
+
 Runs `node dist/cli/index.js` — same interactive CLI, but from compiled output.
 
 ### Build Single Executable Application (optional)
-```bash
+ bash
 npm run build:sea
-```
+ 
+
 Produces a standalone binary via Node's SEA (Single Executable Application) using `scripts/build-sea.mjs`.
 
 ## Verify it works
 
 Run the development CLI:
-```bash
+ bash
 npm run dev
-```
+ 
 
 You should see:
 1. A short animated logo with the tagline "Transform any codebase into an AI-native workspace"
@@ -73,18 +77,19 @@ You should see:
 3. An interactive prompt: `›`
 
 Try a command:
-```
+ 
 /help
-```
-You'll see the list of available commands (`/genesis`, `/sync`, `/config`, `/clean`, `/exit`, `/clear`).
+ 
+
+You'll see the list of available commands (`/genesis`, `/sync`, `/config`, `/clean`, `/exclude`, `/exit`, `/clear`).
 
 Exit with:
-```
+ 
 /exit
-```
 
 ## Next steps
 
 - **Onboarding guide** — See `onboarding.md` (generated after running `/genesis` on a project) for the mental model of how Aether understands a codebase.
 - **Contributing guide** — See `CONTRIBUTING.md` in the repository root for branch naming, commit conventions, and the PR process.
 - **Try it on a project** — Run `/genesis` inside any codebase to generate its `.aether/` knowledge base.
+- **Exclude paths** — Use `/exclude <path>` (or type `@` in the prompt to pick one) to skip large directories that don't need documenting during `/genesis` or `/sync`. Excludes are stored in `.aether/settings/exclude.json`.

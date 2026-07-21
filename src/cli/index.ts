@@ -6,6 +6,7 @@ import { registerHelpCommand } from "../commands/help.js";
 import { registerBuiltinCommands } from "../commands/builtins.js";
 import { registerConfigCommand } from "../commands/config.js";
 import { registerCleanCommand } from "../commands/clean.js";
+import { registerExcludeCommand } from "../commands/exclude.js";
 
 declare const __AETHER_VERSION__: string;
 const VERSION = typeof __AETHER_VERSION__ !== "undefined"
@@ -13,7 +14,7 @@ const VERSION = typeof __AETHER_VERSION__ !== "undefined"
   : "0.0.0-dev";
 
 async function main(): Promise<void> {
-  if (process.argv.includes("--version") || process.argv.includes("-v")) {
+  if (process.argv.includes("--version") || process.argv.includes("-v") || process.argv.includes("-version")) {
     process.stdout.write(`aether v${VERSION}\n`);
     process.exit(0);
   }
@@ -22,6 +23,7 @@ async function main(): Promise<void> {
   registerBuiltinCommands();
   registerConfigCommand();
   registerCleanCommand();
+  registerExcludeCommand();
 
   const isInteractive = process.stdin.isTTY ?? false;
   const noAnimation = process.argv.includes("--no-animation");

@@ -3,6 +3,9 @@ import { existsSync } from "node:fs";
 import { join, relative, extname, basename } from "node:path";
 import type { ProjectContext } from "./types.js";
 import { MAX_FILE_SIZE, MAX_TOTAL_CHARS, MAX_FILES_WALKED, MAX_WALK_DEPTH } from "./constants.js";
+import { loadExcludes, isExcluded } from "./exclude.js";
+
+const rel = (rootDir: string, path: string): string => relative(rootDir, path).replace(/\\/g, "/");
 
 export type { ProjectContext } from "./types.js";
 
@@ -39,6 +42,33 @@ const SOURCE_EXTENSIONS = new Set([
   ".kt", ".rb", ".ex", ".exs", ".php", ".swift", ".vue", ".svelte",
 ]);
 
+// Relative dir paths under the project (skipping ignored/dot/already-excluded dirs) —
+// the candidate list for the interactive /exclude picker.
+export async function collectDirectories(rootDir: string, excludes: string[], maxDepth = 6): Promise<string[]> {
+  const dirs: string[] = [];
+
+  async function walk(dir: string, depth: number): Promise<void> {
+    if (depth > maxDepth) return;
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory() || IGNORED_DIRS.has(entry.name) || entry.name.startsWith(".")) continue;
+      const full = join(dir, entry.name);
+      const relPath = rel(rootDir, full);
+      if (isExcluded(relPath, excludes)) continue;
+      dirs.push(relPath);
+      await walk(full, depth + 1);
+    }
+  }
+
+  await walk(rootDir, 0);
+  return dirs.sort();
+}
+
 export async function scanContext(rootDir: string): Promise<ProjectContext> {
   const context: ProjectContext = {
     name: basename(rootDir),
@@ -51,8 +81,11 @@ export async function scanContext(rootDir: string): Promise<ProjectContext> {
     omittedFiles: [],
   };
 
+  const excludes = await loadExcludes(rootDir);
+
   // 1. Read config files
   for (const file of CONFIG_FILES) {
+    if (isExcluded(file, excludes)) continue;
     const filePath = join(rootDir, file);
     if (!existsSync(filePath)) continue;
 
@@ -72,7 +105,7 @@ export async function scanContext(rootDir: string): Promise<ProjectContext> {
   }
 
   // 2. Read vision/intent docs (CONTEXT.md, CONTRIBUTING.md, docs/*.md, ...)
-  for (const file of await findVisionFiles(rootDir)) {
+  for (const file of await findVisionFiles(rootDir, excludes)) {
     const content = await safeReadFile(join(rootDir, file), file, context.omittedFiles);
     if (content) {
       context.visionFiles.push({ path: file, content });
@@ -80,10 +113,10 @@ export async function scanContext(rootDir: string): Promise<ProjectContext> {
   }
 
   // 3. Build directory tree
-  context.directoryTree = await buildDirectoryTree(rootDir, MAX_WALK_DEPTH);
+  context.directoryTree = await buildDirectoryTree(rootDir, MAX_WALK_DEPTH, excludes);
 
   // 4. Find and read entry points
-  for (const file of await findEntryPoints(rootDir)) {
+  for (const file of await findEntryPoints(rootDir, excludes)) {
     const content = await safeReadFile(join(rootDir, file), file, context.omittedFiles);
     if (content) {
       context.entryPoints.push({ path: file, content });
@@ -93,7 +126,7 @@ export async function scanContext(rootDir: string): Promise<ProjectContext> {
   // 5. Read source files — ALL of them, ranked by importance, within the total char budget.
   //    No fixed file-count cap: a project with 30 small files should not lose 20 of them
   //    to an arbitrary top-10 limit while sitting well under the char budget.
-  const rankedSourceFiles = await findSourceFiles(rootDir, context.omittedFiles);
+  const rankedSourceFiles = await findSourceFiles(rootDir, context.omittedFiles, excludes);
   let totalChars = context.configFiles.reduce((sum, f) => sum + f.content.length, 0)
     + context.visionFiles.reduce((sum, f) => sum + f.content.length, 0)
     + context.entryPoints.reduce((sum, f) => sum + f.content.length, 0);
@@ -220,7 +253,7 @@ async function safeReadFile(filePath: string, label: string, omitted: string[]):
   }
 }
 
-async function buildDirectoryTree(rootDir: string, maxDepth: number): Promise<string> {
+async function buildDirectoryTree(rootDir: string, maxDepth: number, excludes: string[]): Promise<string> {
   const lines: string[] = [];
 
   async function walk(dir: string, prefix: string, depth: number): Promise<void> {
@@ -235,7 +268,7 @@ async function buildDirectoryTree(rootDir: string, maxDepth: number): Promise<st
 
     // Sort: dirs first, then files
     const sorted = entries
-      .filter((e) => !IGNORED_DIRS.has(e.name) && !e.name.startsWith("."))
+      .filter((e) => !IGNORED_DIRS.has(e.name) && !e.name.startsWith(".") && !isExcluded(rel(rootDir, join(dir, e.name)), excludes))
       .sort((a, b) => {
         if (a.isDirectory() && !b.isDirectory()) return -1;
         if (!a.isDirectory() && b.isDirectory()) return 1;
@@ -262,21 +295,22 @@ async function buildDirectoryTree(rootDir: string, maxDepth: number): Promise<st
   return lines.join("\n");
 }
 
-async function findVisionFiles(rootDir: string): Promise<string[]> {
+async function findVisionFiles(rootDir: string, excludes: string[]): Promise<string[]> {
   const found: string[] = [];
 
   for (const candidate of VISION_FILE_CANDIDATES) {
+    if (isExcluded(candidate, excludes)) continue;
     if (existsSync(join(rootDir, candidate))) {
       found.push(candidate);
     }
   }
 
   const docsDir = join(rootDir, "docs");
-  if (existsSync(docsDir)) {
+  if (existsSync(docsDir) && !isExcluded("docs", excludes)) {
     try {
       const entries = await readdir(docsDir, { withFileTypes: true });
       for (const entry of entries) {
-        if (entry.isFile() && entry.name.toLowerCase().endsWith(".md")) {
+        if (entry.isFile() && entry.name.toLowerCase().endsWith(".md") && !isExcluded(`docs/${entry.name}`, excludes)) {
           found.push(`docs/${entry.name}`);
         }
       }
@@ -286,7 +320,7 @@ async function findVisionFiles(rootDir: string): Promise<string[]> {
   return found;
 }
 
-async function findEntryPoints(rootDir: string): Promise<string[]> {
+async function findEntryPoints(rootDir: string, excludes: string[]): Promise<string[]> {
   const candidates = [
     "src/index.ts", "src/index.js", "src/main.ts", "src/main.js",
     "src/app.ts", "src/app.js", "src/server.ts", "src/server.js",
@@ -298,6 +332,7 @@ async function findEntryPoints(rootDir: string): Promise<string[]> {
 
   const found: string[] = [];
   for (const candidate of candidates) {
+    if (isExcluded(candidate, excludes)) continue;
     if (existsSync(join(rootDir, candidate))) {
       found.push(candidate);
     }
@@ -311,7 +346,7 @@ async function findEntryPoints(rootDir: string): Promise<string[]> {
  * fit inside the char budget — this function does not truncate itself,
  * beyond the MAX_FILES_WALKED safety ceiling for pathological repos.
  */
-async function findSourceFiles(rootDir: string, omitted: string[]): Promise<string[]> {
+async function findSourceFiles(rootDir: string, omitted: string[], excludes: string[]): Promise<string[]> {
   const files: Array<{ path: string; size: number }> = [];
   let walkTruncated = false;
 
@@ -331,14 +366,16 @@ async function findSourceFiles(rootDir: string, omitted: string[]): Promise<stri
         return;
       }
 
+      const filePath = join(dir, entry.name);
+      if (isExcluded(rel(rootDir, filePath), excludes)) continue;
+
       if (entry.isDirectory()) {
         if (IGNORED_DIRS.has(entry.name) || entry.name.startsWith(".")) continue;
-        await walk(join(dir, entry.name), depth + 1);
+        await walk(filePath, depth + 1);
       } else if (entry.isFile()) {
         const ext = extname(entry.name).toLowerCase();
         if (!SOURCE_EXTENSIONS.has(ext)) continue;
 
-        const filePath = join(dir, entry.name);
         try {
           const stats = await stat(filePath);
           files.push({ path: relative(rootDir, filePath), size: stats.size });

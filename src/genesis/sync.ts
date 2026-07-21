@@ -345,26 +345,29 @@ export async function refreshDoc(
   changes: string,
   provider: LLMProvider,
   model: string,
+  signal?: AbortSignal,
 ): Promise<string> {
   const { sections } = splitSections(existingDoc);
   if (sections.length === 0) {
-    return fullUpdate(doc, context, existingDoc, changes, provider, model);
+    return fullUpdate(doc, context, existingDoc, changes, provider, model, signal);
   }
 
   const prompt = buildSectionPatchPrompt(doc, context, existingDoc, changes, sections.map((s) => s.heading));
 
   for (let attempt = 1; attempt <= 3; attempt++) {
+    if (signal?.aborted) break;
     const content = attempt === 1 ? prompt : `${prompt}\n\n${SECTION_STRICT}`;
     const response = await chatWithRetry(provider, {
       model,
       messages: [{ role: "user", content }],
       temperature: 0,
+      signal,
     });
     const arr = extractJsonArray(response.content);
     if (arr) return applySectionPatch(existingDoc, toSectionPatches(arr));
   }
 
-  return fullUpdate(doc, context, existingDoc, changes, provider, model);
+  return fullUpdate(doc, context, existingDoc, changes, provider, model, signal);
 }
 
 async function fullUpdate(
@@ -374,11 +377,13 @@ async function fullUpdate(
   changes: string,
   provider: LLMProvider,
   model: string,
+  signal?: AbortSignal,
 ): Promise<string> {
   const response = await chatWithRetry(provider, {
     model,
     messages: [{ role: "user", content: buildDocUpdatePrompt(doc, context, existingDoc, changes) }],
     temperature: 0,
+    signal,
   });
   return response.content;
 }

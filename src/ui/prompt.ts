@@ -2,93 +2,201 @@ import type { Key } from "node:readline";
 import chalk from "chalk";
 import { TextPrompt, isCancel } from "@clack/core";
 import { registry } from "../commands/registry.js";
+import { collectDirectories } from "../genesis/context.js";
+import { loadExcludes } from "../genesis/exclude.js";
 
 import { ACCENT, ACCENT_BOLD, DIM } from "./theme.js";
 
 const TIPS = [
   `${DIM("tip:")} use ${ACCENT("/genesis")} to analyze your project`,
   `${DIM("tip:")} ${ACCENT("Tab")} to autocomplete commands`,
+  `${DIM("tip:")} ${ACCENT("/exclude @")} picks a path to skip`,
   `${DIM("tip:")} ${ACCENT("/clear")} clears the screen`,
   `${DIM("tip:")} just type a message to chat`,
 ];
 
 const MAX_DROPDOWN = 6;
+const MAX_PATH_DROPDOWN = 10;
+const REMOVE_RE = /^\/exclude\s+(?:remove|rm)\b/;
 
 let tipIndex = 0;
 let messageCount = 0;
 
+async function loadDirPaths(): Promise<string[]> {
+  try {
+    return await collectDirectories(process.cwd(), await loadExcludes(process.cwd()));
+  } catch {
+    return [];
+  }
+}
+
 export async function startChat(): Promise<void> {
+  let dirs = await loadDirPaths();
+  let excluded = await loadExcludes(process.cwd());
+
   for (;;) {
     if (messageCount > 0 && messageCount % 4 === 0) {
       process.stdout.write(`  ${TIPS[tipIndex % TIPS.length]}\n\n`);
       tipIndex++;
     }
 
-    const input = await ask();
+    const value = (await new ChatPrompt(dirs, excluded).prompt()) as string | symbol;
 
     // Ctrl+C — leave the same way the old readline "close" handler did.
-    if (isCancel(input)) {
+    if (isCancel(value)) {
       process.stdout.write(`\n${DIM("  ✦ See you next time.")}\n\n`);
       process.exit(0);
     }
 
     messageCount++;
-    const trimmed = input.trim();
+    const trimmed = String(value).trim();
     if (!trimmed) continue;
 
     if (trimmed.startsWith("/")) {
       const handled = await registry.execute(trimmed);
-      if (handled) continue;
+      if (handled) {
+        // An /exclude may have changed both lists.
+        dirs = await loadDirPaths();
+        excluded = await loadExcludes(process.cwd());
+        continue;
+      }
     }
 
     respond(trimmed.startsWith("/") ? trimmed.slice(1) : trimmed);
   }
 }
 
-/** Prompt for one line. Resolves to the typed string, or a cancel symbol on Ctrl+C. */
-function ask(): Promise<string | symbol> {
-  const prompt = new ChatPrompt();
-  return prompt.prompt() as Promise<string | symbol>;
+/** The `@partial` being typed at the end of the line, or null if there's no active mention. */
+function activeMention(input: string): string | null {
+  const m = input.match(/(?:^|\s)@([^\s@]*)$/);
+  return m ? m[1] : null;
+}
+
+function filterPaths(paths: string[], partial: string): string[] {
+  if (!partial) return paths;
+  const q = partial.toLowerCase();
+  const starts = paths.filter((p) => p.toLowerCase().startsWith(q));
+  const rest = paths.filter((p) => !p.toLowerCase().startsWith(q) && p.toLowerCase().includes(q));
+  return [...starts, ...rest];
 }
 
 /**
- * A single-line text prompt with a live dropdown of matching `/` commands and
- * Tab completion. Rendering is delegated to @clack/core's TextPrompt.
+ * Single-line input with two live dropdowns: `/command` completion (Tab), and an
+ * inline `@` path picker (type to filter, ↑↓ to move, ⏎ to exclude the highlighted path).
  */
 class ChatPrompt extends TextPrompt {
-  constructor() {
+  private pickerIndex = 0;
+  private consumeReturn = false;
+
+  constructor(
+    private dirs: string[],
+    private excluded: string[],
+  ) {
     super({
       render(this: TextPrompt) {
-        return renderFrame(this);
+        return (this as ChatPrompt).frame();
       },
     });
 
-    // readline inserts a literal tab into the buffer; intercept it for completion.
-    this.on("key", (_char: string | undefined, key: Key) => {
-      if (key?.name === "tab") this.handleTab();
-    });
+    this.on("key", (char: string | undefined, key: Key) => this.onKey(char, key));
+  }
+
+  // `/exclude remove @` picks from what's already excluded; otherwise from the project dirs.
+  private sourcePaths(): string[] {
+    return REMOVE_RE.test(this.userInput) ? this.excluded : this.dirs;
+  }
+
+  // When the @ picker is open, Enter fills in the highlighted path instead of submitting.
+  protected _shouldSubmit(char: string | undefined, key: Key): boolean {
+    if (this.consumeReturn) {
+      this.consumeReturn = false;
+      return false;
+    }
+    return super._shouldSubmit(char, key);
+  }
+
+  private onKey(_char: string | undefined, key: Key): void {
+    const name = key?.name;
+    if (name === "tab") {
+      this.handleTab();
+      return;
+    }
+
+    const mention = activeMention(this.userInput);
+
+    if (name === "up" || name === "down") {
+      if (mention === null) return;
+      const n = filterPaths(this.sourcePaths(), mention).length;
+      if (n === 0) return;
+      this.pickerIndex = name === "up" ? (this.pickerIndex - 1 + n) % n : (this.pickerIndex + 1) % n;
+      return;
+    }
+
+    if (name === "return") {
+      // Insert the highlighted path where the @token is, then suppress this Enter's submit.
+      if (mention !== null) {
+        const matches = filterPaths(this.sourcePaths(), mention);
+        if (matches.length > 0) {
+          const picked = matches[Math.min(this.pickerIndex, matches.length - 1)];
+          const at = this.userInput.lastIndexOf("@");
+          const next = this.userInput.slice(0, at) + picked;
+          this._clearUserInput();
+          this._setUserInput(next, true);
+          this.consumeReturn = true;
+        }
+      }
+      return;
+    }
+
+    // Any typing/backspace re-filters — keep the highlight at the top.
+    this.pickerIndex = 0;
   }
 
   private handleTab(): void {
     const raw = this.userInput.replace(/\t/g, "");
     const completed = completeSlash(raw);
     const next = completed ?? raw;
-    // Rewrite the buffer (strips the stray tab even when there's nothing to complete).
     if (next !== this.userInput) {
       this._clearUserInput();
       this._setUserInput(next, true);
     }
   }
+
+  private frame(): string {
+    const line = `${ACCENT_BOLD("  → ")}${this.userInputWithCursor}`;
+    if (this.state === "submit" || this.state === "cancel") return line;
+
+    const mention = activeMention(this.userInput);
+    if (mention !== null) return `${line}${this.pathDropdown(mention)}`;
+    return `${line}${buildDropdown(this.userInput)}`;
+  }
+
+  private pathDropdown(partial: string): string {
+    const source = this.sourcePaths();
+    const removing = REMOVE_RE.test(this.userInput);
+    const matches = filterPaths(source, partial);
+    if (matches.length === 0) {
+      const why = removing ? "nothing excluded to remove" : "no matching paths";
+      return `\n  ${DIM(`@ ${why} — backspace to cancel`)}`;
+    }
+
+    const idx = Math.min(this.pickerIndex, matches.length - 1);
+    const start = Math.min(Math.max(0, idx - MAX_PATH_DROPDOWN + 1), Math.max(0, matches.length - MAX_PATH_DROPDOWN));
+    const lines = matches.slice(start, start + MAX_PATH_DROPDOWN).map((p, i) => {
+      const on = start + i === idx;
+      return on ? `  ${ACCENT("❯")} ${ACCENT(p)}` : `    ${DIM(p)}`;
+    });
+    const verb = removing ? "re-include" : "insert";
+    lines.push(
+      matches.length > MAX_PATH_DROPDOWN
+        ? DIM(`  ${matches.length} paths · ↑↓ move · ⏎ ${verb}`)
+        : DIM(`  ↑↓ move · ⏎ ${verb}`),
+    );
+    return `\n${lines.join("\n")}`;
+  }
 }
 
-export function renderFrame(p: Pick<TextPrompt, "userInput" | "userInputWithCursor" | "state">): string {
-  const line = `${ACCENT_BOLD("  → ")}${p.userInputWithCursor}`;
-  // Only show the dropdown while the user is actively editing.
-  if (p.state === "submit" || p.state === "cancel") return line;
-  return `${line}${buildDropdown(p.userInput)}`;
-}
-
-/** The dropdown block (leading newlines put it below the input line), or "" when hidden. */
+/** The `/command` dropdown block (leading newline puts it below the input), or "" when hidden. */
 export function buildDropdown(line: string): string {
   if (!line.startsWith("/")) return "";
 
@@ -96,7 +204,6 @@ export function buildDropdown(line: string): string {
   const commands = registry.getAll();
   const matches = partial.length === 0 ? commands : commands.filter((c) => c.name.startsWith(partial));
 
-  // Hide once there's nothing useful left to suggest.
   if (matches.length === 0) return "";
   if (matches.length === 1 && matches[0].name === partial) return "";
 
@@ -112,11 +219,6 @@ export function buildDropdown(line: string): string {
   return `\n${lines.join("\n")}`;
 }
 
-/**
- * Completion for a partial `/command`. Returns the completed input, or null if
- * there's nothing to complete. One match → full name + trailing space; several
- * → the longest common prefix (mirrors readline).
- */
 export function completeSlash(input: string): string | null {
   if (!input.startsWith("/")) return null;
 

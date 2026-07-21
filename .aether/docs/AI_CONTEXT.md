@@ -8,7 +8,7 @@ Aether is an open-source CLI that transforms any codebase into an AI-native work
 ## Always Follow
 
 ### Architecture Patterns
-- **CLI entry point**: `src/cli/index.ts` exports `main()`; registers commands in order: `registerHelpCommand()`, `registerBuiltinCommands()`, `registerConfigCommand()`, `registerCleanCommand()`; starts interactive chat via `startChat()` after banner/animation.
+- **CLI entry point**: `src/cli/index.ts` exports `main()`; registers commands in order: `registerHelpCommand()`, `registerBuiltinCommands()`, `registerConfigCommand()`, `registerCleanCommand()`, `registerExcludeCommand()`; starts interactive chat via `startChat()` after banner/animation.
 - **Command registry**: `src/commands/registry.ts` exports `CommandRegistry` class and singleton `registry`; commands implement `{ name, description, usage?, handler: (args: string) => Promise<void> | void }`; executed via `registry.execute(input)` parsing `/name args`.
 - **Provider factory**: `src/providers/factory.ts` exports `createProvider(config: AetherConfig)` returning `LLMProvider`; switches on `config.provider` (`openai` | `anthropic` | `gemini` | `openrouter`) instantiating `OpenAICompatibleProvider` (anthropic has TODO for different API format).
 - **Retry wrapper**: `src/providers/retry.ts` exports `chatWithRetry(provider, request, options?)` with exponential backoff, rate-limit (429) detection, provider-suggested delay extraction, and `createRetryLogger()` for stdout progress.
@@ -23,6 +23,7 @@ Aether is an open-source CLI that transforms any codebase into an AI-native work
 - **Constants via env**: `src/genesis/constants.ts` uses `envInt(name, fallback)` for `MAX_FILE_SIZE`, `MAX_TOTAL_CHARS`, `MAX_FILES_WALKED`, `MAX_WALK_DEPTH`, `DOC_CONTEXT_BUDGET`, `GEN_CONCURRENCY`, `DISTILL_CONCURRENCY`.
 - **Hashing**: `src/util/hash.ts` exports `hashContent(content)` normalizing CRLF→LF, returning SHA-256 hex.
 - **Git integration**: `src/genesis/fingerprint.ts` uses `execFileSync` for `git rev-parse`, `git status --porcelain`, `git log`.
+- **Exclude system**: `src/genesis/exclude.ts` manages `.aether/settings/exclude.json` with `loadExcludes`, `addExclude`, `removeExclude`; `src/commands/exclude.ts` registers `/exclude` command for add/list/remove; `src/ui/prompt.ts` integrates `@` path mentions with exclude-aware dropdown.
 
 ### Coding Standards
 - **TypeScript only** (`"type": "module"`, `"strict": true` in `tsconfig.json`); no `any`.
@@ -34,8 +35,24 @@ Aether is an open-source CLI that transforms any codebase into an AI-native work
 - **Retry defaults**: `maxRetries: 3`, `baseDelay: 2000`; rate limit upgrades to `maxRetries: 6`, `baseDelay: 15000`.
 - **Planner retries**: `MAX_PLAN_ATTEMPTS = 3`, temperature 0 on retry, falls back to `CORE_IDS` (6 hardcoded doc IDs).
 - **Custom docs limit**: `MAX_CUSTOM_DOCS = 5` via `dedupeCustomDocs().slice(0, 5)`.
+- **Exclude system**: `src/genesis/exclude.ts` manages `.aether/settings/exclude.json`; `src/commands/exclude.ts` registers `/exclude` command; `src/ui/prompt.ts` integrates `@` path mentions with exclude-aware dropdown.
 
----
+### Never Do
+- **Never use `any`** — strict TypeScript enforced.
+- **Never use CommonJS `require`** — only ES `import` with `.js` extensions.
+- **Never invent providers** — only `openai`, `anthropic`, `gemini`, `openrouter` via `OpenAICompatibleProvider`.
+- **Never skip config validation** — `validateConfig` checks `provider` (enum), `model`, `baseUrl`, `apiKey`.
+- **Never write to `dist/` directly** — build via `npm run build` (`tsc`).
+- **Never hardcode paths** — use `getGlobalDir()`, `getProjectCacheDir(rootDir)`, `projectConfigPaths(rootDir)`.
+- **Never bypass retry logic** — use `chatWithRetry` for all LLM calls.
+- **Never exceed context budget** — `buildSharedProjectContext` distills when `buildPrompt(context).length > DOC_CONTEXT_BUDGET`.
+- **Never add commands without registry** — all commands via `registry.register()` in `registerXxxCommand()` functions.
+- **Never use untyped config** — `AetherConfig` interface required; `DEFAULT_CONFIGS` provides per-provider defaults.
+- **Never ignore git errors** — `getGitInfo`/`getGitLog` return `null` on failure, callers handle gracefully.
+- **Never skip deduplication** — `dedupe(files)` by path before distillation; `dedupeCustomDocs()` by path before planning.
+- **Never use `chalk` directly without theme** — import `ACCENT`, `DIM`, etc. from `../ui/theme.js`.
+- **Never block event loop** — `sleep(ms)` helper wraps `setTimeout`; spinners use intervals.
+- **Never ignore exclude paths** — `collectDirectories` in `src/genesis/context.ts` filters by `loadExcludes`; `src/ui/prompt.ts` filters `@` mentions against excludes.
 
 ## Never Do
 
@@ -75,8 +92,8 @@ Aether is an open-source CLI that transforms any codebase into an AI-native work
 | **No test framework, no linting, no CI config detected** | `package.json` devDeps only: `@types/node`, `esbuild`, `postject`, `tsx`, `typescript`. |
 | **Node ≥ 20 required** | `package.json` `"engines": { "node": ">=20.0.0" }`. |
 | **Only runtime dependency is `chalk`** | `package.json` `dependencies: { "chalk": "^5.4.1" }`. |
-
----
+| **Exclude system for skipping paths** | `src/genesis/exclude.ts` manages `.aether/settings/exclude.json`; `src/commands/exclude.ts` registers `/exclude` command; `src/ui/prompt.ts` integrates `@` path mentions with exclude-aware dropdown. |
+| **Interactive prompt integrates exclude system** | `src/ui/prompt.ts` `ChatPrompt` class filters `@` path mentions against excludes; `/exclude remove @` shows excluded paths in dropdown. |
 
 ## Conventions
 
@@ -120,7 +137,7 @@ Aether is an open-source CLI that transforms any codebase into an AI-native work
 | CLI entry | `src/cli/index.ts` | `main()` function, command registration order |
 | Command implementation | `src/commands/<name>.ts` | `register<Name>Command()` export, uses `registry` |
 | Command registry | `src/commands/registry.ts` | `CommandRegistry` class, `registry` singleton |
-| Genesis pipeline | `src/genesis/<name>.ts` | `context.ts`, `digest.ts`, `fingerprint.ts`, `scope.ts`, `planner.ts`, `docs.ts`, `distill.ts`, `sync.ts`, `types.ts`, `constants.ts` |
+| Genesis pipeline | `src/genesis/<name>.ts` | `context.ts`, `digest.ts`, `fingerprint.ts`, `scope.ts`, `planner.ts`, `docs.ts`, `distill.ts`, `sync.ts`, `types.ts`, `constants.ts`, `exclude.ts` |
 | Document prompts | `src/prompts/docs/<name>.ts` | One per doc type (e.g., `getting-started.ts`, `api.ts`), exports `*_PROMPT` const |
 | Pipeline prompts | `src/prompts/pipeline/<name>.ts` | `planner.ts` (`PLANNER_PROMPT`), `sync.ts` (`SYNC_PLANNER_PROMPT`, etc.) |
 | Prompt barrel | `src/prompts/index.ts` | Re-exports all prompts, base prompts, `buildCustomDocPrompt` |
@@ -135,8 +152,11 @@ Aether is an open-source CLI that transforms any codebase into an AI-native work
 | Global config | `~/.aether/config.json` | `GlobalConfigFile` with `default` and `projects` |
 | Project cache | `~/.aether/cache/<project-id>/` | `distill-cache.json` per model |
 | Project README | `.aether/README.md` | Written by `ensureProjectReadme` from `AETHER_README` constant |
-
----
+| Exclude settings | `.aether/settings/exclude.json` | Managed by `src/genesis/exclude.ts`, edited via `/exclude` command |
+| Exclude command | `src/commands/exclude.ts` | Registers `/exclude` command for add/list/remove |
+| Interactive prompt integration | `src/ui/prompt.ts` | `ChatPrompt` class filters `@` mentions against excludes |
+| Genesis context collection | `src/genesis/context.ts` | `collectDirectories` filters by `loadExcludes` |
+| Built-in commands registration | `src/commands/builtins.ts` | `registerBuiltinCommands()` includes `registerExcludeCommand()` |
 
 ## Critical Files to Know
 
@@ -151,8 +171,11 @@ Aether is an open-source CLI that transforms any codebase into an AI-native work
 - `src/ui/steps.ts` — multi-step progress with spinners
 - `src/util/hash.ts` — content hashing for fingerprints
 - `src/genesis/constants.ts` — all tunable limits via env vars
-
----
+- `src/genesis/exclude.ts` — exclude path management, `.aether/settings/exclude.json`
+- `src/commands/exclude.ts` — `/exclude` command registration and handling
+- `src/commands/builtins.ts` — registers all built-in commands including exclude
+- `src/genesis/context.ts` — `collectDirectories` filters by excludes
+- `src/ui/prompt.ts` — `ChatPrompt` integrates exclude-aware `@` path mentions
 
 ## Technologies (Verified)
 

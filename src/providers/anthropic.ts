@@ -1,19 +1,19 @@
 import type { LLMProvider, ChatRequest, ChatResponse, StreamChunk, PingResult } from "./types.js";
 
-export class OpenAICompatibleProvider implements LLMProvider {
-  name: string;
+const ANTHROPIC_VERSION = "2023-06-01";
+const DEFAULT_MAX_TOKENS = 8192; // Anthropic requires max_tokens.
+
+// Native Messages API — Anthropic isn't OpenAI-compatible (own endpoint, auth, SSE shape).
+export class AnthropicProvider implements LLMProvider {
+  name = "anthropic";
   private baseUrl: string;
   private apiKey: string;
   private idleTimeout: number;
 
-  constructor(baseUrl: string, apiKey?: string, idleTimeout?: number, name?: string) {
+  constructor(baseUrl: string, apiKey?: string, idleTimeout?: number) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
     this.apiKey = apiKey || "";
-    // Idle timeout: abort only after this many ms of *silence*. Because we stream,
-    // every token (and every keepalive comment slow free tiers send while queued)
-    // resets the window — so a model that responds slowly but steadily never aborts.
-    this.idleTimeout = idleTimeout || 120_000; // 2 minutes of silence
-    this.name = name || "openai";
+    this.idleTimeout = idleTimeout || 120_000;
   }
 
   async chat(request: ChatRequest): Promise<ChatResponse> {
@@ -37,16 +37,10 @@ export class OpenAICompatibleProvider implements LLMProvider {
     yield { content: "", done: true };
   }
 
-  /**
-   * Shared streaming core for both chat() and chatStream(). Always requests
-   * stream:true so we can enforce an *idle* timeout (reset on every received
-   * chunk) instead of a hard total-time cap — the key to surviving slow models.
-   */
   private async *streamRaw(
     request: ChatRequest,
   ): AsyncGenerator<{ delta: string; model?: string; usage?: ChatResponse["usage"] }> {
     const controller = new AbortController();
-    // An external signal (ESC) aborts the same request the idle timer would.
     const onExternalAbort = () => controller.abort();
     if (request.signal) {
       if (request.signal.aborted) controller.abort();
@@ -59,21 +53,32 @@ export class OpenAICompatibleProvider implements LLMProvider {
     };
     armIdle();
 
+    // Anthropic takes `system` as a top-level string, not a message role.
+    const system = request.messages.filter((m) => m.role === "system").map((m) => m.content).join("\n\n");
+    const messages = request.messages
+      .filter((m) => m.role !== "system")
+      .map((m) => ({ role: m.role, content: m.content }));
+
+    // Usage arrives in pieces: input_tokens in message_start, output_tokens in message_delta.
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let model = request.model;
+
     try {
-      const response = await fetch(`${this.baseUrl}/chat/completions`, {
+      const response = await fetch(`${this.baseUrl}/messages`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${this.apiKey}`,
+          "x-api-key": this.apiKey,
+          "anthropic-version": ANTHROPIC_VERSION,
         },
         body: JSON.stringify({
           model: request.model,
-          messages: request.messages,
+          max_tokens: request.maxTokens ?? DEFAULT_MAX_TOKENS,
           temperature: request.temperature ?? 0.7,
-          max_tokens: request.maxTokens,
+          ...(system ? { system } : {}),
+          messages,
           stream: true,
-          stream_options: { include_usage: true },
-          ...this.providerParams(request.model),
         }),
         signal: controller.signal,
       });
@@ -92,40 +97,46 @@ export class OpenAICompatibleProvider implements LLMProvider {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-
-        // Any byte of progress (token OR keepalive comment) keeps us alive.
         armIdle();
 
         buffer += decoder.decode(value, { stream: true });
-
         const lines = buffer.split("\n");
         buffer = lines.pop() || "";
 
         for (const line of lines) {
           const trimmed = line.trim();
-          // Skip blanks and SSE comment/keepalive lines (start with ":").
-          if (!trimmed || trimmed.startsWith(":")) continue;
+          // Anthropic sends `event:` lines and `data:` lines; we only need the data JSON.
           if (!trimmed.startsWith("data:")) continue;
-
           const data = trimmed.slice(5).trim();
-          if (data === "[DONE]") return;
+          if (!data) continue;
 
           try {
-            const parsed = JSON.parse(data) as OpenAIStreamChunk;
-            const delta = parsed.choices?.[0]?.delta?.content || "";
-            const usage = parsed.usage
-              ? {
-                  promptTokens: parsed.usage.prompt_tokens,
-                  completionTokens: parsed.usage.completion_tokens,
-                  totalTokens: parsed.usage.total_tokens,
-                }
-              : undefined;
-
-            if (delta || usage || parsed.model) {
-              yield { delta, model: parsed.model, usage };
+            const parsed = JSON.parse(data) as AnthropicStreamEvent;
+            switch (parsed.type) {
+              case "message_start":
+                if (parsed.message?.model) model = parsed.message.model;
+                if (parsed.message?.usage?.input_tokens) inputTokens = parsed.message.usage.input_tokens;
+                break;
+              case "content_block_delta":
+                if (parsed.delta?.text) yield { delta: parsed.delta.text };
+                break;
+              case "message_delta":
+                if (parsed.usage?.output_tokens) outputTokens = parsed.usage.output_tokens;
+                break;
+              case "message_stop":
+                yield {
+                  delta: "",
+                  model,
+                  usage: {
+                    promptTokens: inputTokens,
+                    completionTokens: outputTokens,
+                    totalTokens: inputTokens + outputTokens,
+                  },
+                };
+                return;
             }
           } catch {
-            // Skip malformed chunks
+            // Skip malformed events
           }
         }
       }
@@ -135,23 +146,16 @@ export class OpenAICompatibleProvider implements LLMProvider {
     }
   }
 
-  /** Extra body params per provider. reasoning_effort only on OpenAI reasoning models — plain ones 400 on it. */
-  protected providerParams(model: string): Record<string, unknown> {
-    if (this.name === "openai" && /^(o[0-9]|gpt-5)/i.test(model)) return { reasoning_effort: "low" };
-    return {};
-  }
-
   async ping(): Promise<PingResult> {
     const controller = new AbortController();
-    // 10s: a 5s window was tight enough that a momentarily slow network read as
-    // "service down". The check hits a lightweight /models list, so 10s is safe.
     const timeout = setTimeout(() => controller.abort(), 10_000);
 
     try {
       const response = await fetch(`${this.baseUrl}/models`, {
         method: "GET",
         headers: {
-          "Authorization": `Bearer ${this.apiKey}`,
+          "x-api-key": this.apiKey,
+          "anthropic-version": ANTHROPIC_VERSION,
         },
         signal: controller.signal,
       });
@@ -164,34 +168,20 @@ export class OpenAICompatibleProvider implements LLMProvider {
         message: `HTTP ${response.status} ${response.statusText}`.trim(),
       };
     } catch (err) {
-      // An abort fires as an exception too — separate it from real network errors
-      // so the caller can say "timed out" vs "couldn't connect".
       if (controller.signal.aborted) {
         return { ok: false, reason: "timeout", message: "timed out after 10s" };
       }
       const e = err as Error & { cause?: { code?: string } };
-      return {
-        ok: false,
-        reason: "network",
-        message: e.cause?.code || e.message || "network error",
-      };
+      return { ok: false, reason: "network", message: e.cause?.code || e.message || "network error" };
     } finally {
       clearTimeout(timeout);
     }
   }
 }
 
-// OpenAI-compatible streaming chunk (also carries model/usage on some providers)
-interface OpenAIStreamChunk {
-  model?: string;
-  choices: Array<{
-    delta: {
-      content?: string;
-    };
-  }>;
-  usage?: {
-    prompt_tokens: number;
-    completion_tokens: number;
-    total_tokens: number;
-  };
+interface AnthropicStreamEvent {
+  type: string;
+  message?: { model?: string; usage?: { input_tokens?: number } };
+  delta?: { text?: string };
+  usage?: { output_tokens?: number };
 }
