@@ -69,6 +69,35 @@ export async function collectDirectories(rootDir: string, excludes: string[], ma
   return dirs.sort();
 }
 
+export async function collectSourceFiles(rootDir: string, excludes: string[], maxDepth = 6): Promise<string[]> {
+  const files: string[] = [];
+
+  async function walk(dir: string, depth: number): Promise<void> {
+    if (depth > maxDepth) return;
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const full = join(dir, entry.name);
+      const relPath = rel(rootDir, full);
+      if (isExcluded(relPath, excludes)) continue;
+
+      if (entry.isDirectory()) {
+        if (IGNORED_DIRS.has(entry.name) || entry.name.startsWith(".")) continue;
+        await walk(full, depth + 1);
+      } else if (entry.isFile() && SOURCE_EXTENSIONS.has(extname(entry.name).toLowerCase())) {
+        files.push(relPath);
+      }
+    }
+  }
+
+  await walk(rootDir, 0);
+  return files.sort();
+}
+
 export async function scanContext(rootDir: string): Promise<ProjectContext> {
   const context: ProjectContext = {
     name: basename(rootDir),

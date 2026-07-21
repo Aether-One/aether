@@ -22,3 +22,6 @@ export const DOC_CONTEXT_BUDGET = envInt("AETHER_DOC_CONTEXT_CHARS", 48_000);
 export const GEN_CONCURRENCY = envInt("AETHER_GEN_CONCURRENCY", 4);
 /** How many files to distill concurrently. */
 export const DISTILL_CONCURRENCY = envInt("AETHER_DISTILL_CONCURRENCY", 4);
+
+/** Char budget for the batched clean-code review prompt (source files only). */
+export const CLEANCODE_CONTEXT_BUDGET = envInt("AETHER_CLEANCODE_CONTEXT_CHARS", 48_000);

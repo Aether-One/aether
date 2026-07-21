@@ -6,15 +6,19 @@ import { registerHelpCommand } from "../commands/help.js";
 import { registerBuiltinCommands } from "../commands/builtins.js";
 import { registerConfigCommand } from "../commands/config.js";
 import { registerCleanCommand } from "../commands/clean.js";
+import { registerCleanCodeCommand } from "../commands/cleancode.js";
 import { registerExcludeCommand } from "../commands/exclude.js";
 
 declare const __AETHER_VERSION__: string;
-const VERSION = typeof __AETHER_VERSION__ !== "undefined"
-  ? __AETHER_VERSION__
-  : "0.0.0-dev";
+const VERSION =
+  typeof __AETHER_VERSION__ !== "undefined" ? __AETHER_VERSION__ : "0.0.0-dev";
 
 async function main(): Promise<void> {
-  if (process.argv.includes("--version") || process.argv.includes("-v") || process.argv.includes("-version")) {
+  if (
+    process.argv.includes("--version") ||
+    process.argv.includes("-v") ||
+    process.argv.includes("-version")
+  ) {
     process.stdout.write(`aether v${VERSION}\n`);
     process.exit(0);
   }
@@ -23,6 +27,7 @@ async function main(): Promise<void> {
   registerBuiltinCommands();
   registerConfigCommand();
   registerCleanCommand();
+  registerCleanCodeCommand();
   registerExcludeCommand();
 
   const isInteractive = process.stdin.isTTY ?? false;

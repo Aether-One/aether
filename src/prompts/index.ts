@@ -20,3 +20,10 @@ export { buildCustomDocPrompt } from "./docs/custom-doc.js";
 // Pipeline prompts (planning + incremental sync)
 export { PLANNER_PROMPT } from "./pipeline/planner.js";
 export { SYNC_PLANNER_PROMPT, DOC_UPDATE_INSTRUCTIONS, SECTION_PATCH_INSTRUCTIONS } from "./pipeline/sync.js";
+export {
+  DEFAULT_PARADIGM,
+  paradigmLabel,
+  paradigmFocus,
+  listParadigms,
+  buildCleanCodeScanPrompt,
+} from "./pipeline/cleancode.js";

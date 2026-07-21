@@ -1,4 +1,4 @@
-import type { ProjectContext } from "./types.js";
+import type { ProjectContext, FileContent } from "./types.js";
 import { buildPrompt } from "./context.js";
 import { DOC_CONTEXT_BUDGET } from "./constants.js";
 import type { ModelPricing } from "../pricing/index.js";
@@ -126,4 +126,20 @@ export function estimateSync(
 
 function clamp(n: number, min: number, max: number): number {
   return Math.min(Math.max(n, min), max);
+}
+
+const CLEANCODE_OUT_LOW = 0.15;
+const CLEANCODE_OUT_HIGH = 0.35;
+
+export function estimateCleanCode(flaggedFiles: FileContent[], pricing: ModelPricing | null): CostEstimate {
+  const inputChars = flaggedFiles.reduce((s, f) => s + f.content.length, 0) + PROMPT_OVERHEAD_CHARS;
+  const inputTokens = tokensFromChars(inputChars);
+  const jobs: Job[] = [
+    {
+      inputChars,
+      outputLow: Math.round(inputTokens * CLEANCODE_OUT_LOW),
+      outputHigh: Math.round(inputTokens * CLEANCODE_OUT_HIGH),
+    },
+  ];
+  return assemble(jobs, null, pricing);
 }
