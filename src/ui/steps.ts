@@ -3,6 +3,12 @@ import chalk from "chalk";
 import { ACCENT, DIM, SUCCESS } from "./theme.js";
 const FAIL = chalk.red;
 
+function isAbortError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as { name?: string; cancelled?: boolean };
+  return e.name === "AbortError" || e.cancelled === true;
+}
+
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 export interface Step {
@@ -52,15 +58,21 @@ export class StepRunner {
   /**
    * Runs `fn` for every step with at most `limit` in flight at once. Steps light
    * up concurrently (each with its own spinner) and settle as they finish — much
-   * faster than one-at-a-time when each step is a slow model call. The first
-   * failure aborts and rethrows.
+   * faster than one-at-a-time when each step is a slow model call.
+   *
+   * Errors do NOT stop other workers — unless the error is an abort/cancel, which
+   * stops all workers from picking up new steps. After all in-flight work settles,
+   * if any step failed, the first error is rethrown so the caller can report it.
    */
   async runPooled(limit: number, fn: (index: number) => Promise<void>): Promise<void> {
     this.startSpinner();
     let next = 0;
+    let stopped = false;
+    const errors: Array<{ index: number; error: unknown }> = [];
 
     const worker = async () => {
       while (true) {
+        if (stopped) break;
         const i = next++;
         if (i >= this.steps.length) break;
         this.steps[i].status = "running";
@@ -72,7 +84,13 @@ export class StepRunner {
         } catch (err) {
           this.steps[i].status = "error";
           this.render();
-          throw err;
+          errors.push({ index: i, error: err });
+          // If the error looks like an abort/cancel, stop picking up new work.
+          if (isAbortError(err)) {
+            stopped = true;
+            break;
+          }
+          // Otherwise continue — other docs may still succeed.
         }
       }
     };
@@ -82,6 +100,10 @@ export class StepRunner {
     } finally {
       this.stopSpinner();
       this.render();
+    }
+
+    if (errors.length > 0) {
+      throw errors[0].error;
     }
   }
 

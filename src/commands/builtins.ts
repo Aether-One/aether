@@ -68,6 +68,22 @@ function printExcludeHint(): void {
   );
 }
 
+/** Sleep that resolves immediately when the signal fires, so ESC isn't blocked. */
+function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) return resolve();
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    function onAbort() {
+      clearTimeout(timer);
+      resolve();
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 export function registerBuiltinCommands(): void {
   registry.register({
     name: "genesis",
@@ -182,9 +198,7 @@ export function registerBuiltinCommands(): void {
         const stopCancel = watchCancelKey(() => controller.abort());
 
         try {
-          // Build ONE complete context, shared by every doc. If the whole project
-          // fits, that's the real code; if not, it's distilled once here (not per
-          // doc) so the expensive pass runs a single time and every doc stays complete.
+          // Build ONE complete context, shared by every doc.
           const ctxSpinner = new LineSpinner("Preparing project context...");
           ctxSpinner.start();
           let sharedContext: string;
@@ -219,33 +233,45 @@ export function registerBuiltinCommands(): void {
           const startTime = Date.now();
           const aetherDir = join(targetDir, ".aether");
 
-          // Docs are independent — generate several at once. Each is still a slow
-          // model call, but the wall-clock drops by the concurrency factor.
-          // Tune with AETHER_GEN_CONCURRENCY.
           try {
             await runner.runPooled(GEN_CONCURRENCY, async (i) => {
               const doc = docsToGenerate[i];
-              // Every doc is generated from the same complete context.
               const prompt = buildDocPrompt(doc, sharedContext);
-              const response = await chatWithRetry(
-                provider,
-                {
-                  model: config.model,
-                  messages: [{ role: "user", content: prompt }],
-                  temperature: 0.3,
-                  signal: controller.signal,
-                },
-                {
-                  onRetry: (attempt, maxRetries, _error) =>
-                    runner.setDetail(i, `retry ${attempt}/${maxRetries} — rate limited`),
-                },
-              );
 
-              // Write file
+              const MAX_EMPTY_RETRIES = 5;
+              let content = "";
+              for (let attempt = 0; attempt < MAX_EMPTY_RETRIES; attempt++) {
+                if (controller.signal.aborted) break;
+                if (attempt > 0) {
+                  runner.setDetail(i, `empty response — retry ${attempt}/${MAX_EMPTY_RETRIES - 1}`);
+                  await abortableSleep(10_000 * attempt, controller.signal);
+                  if (controller.signal.aborted) break;
+                }
+                const response = await chatWithRetry(
+                  provider,
+                  {
+                    model: config.model,
+                    messages: [{ role: "user", content: prompt }],
+                    temperature: 0.3,
+                    signal: controller.signal,
+                  },
+                  {
+                    onRetry: (retryAttempt, maxRetries, _error) =>
+                      runner.setDetail(i, `retry ${retryAttempt}/${maxRetries} — rate limited`),
+                  },
+                );
+                content = response.content;
+                if (content.trim()) break;
+              }
+
+              if (!content.trim()) {
+                throw new Error(`Model returned empty content for ${doc.label} after ${MAX_EMPTY_RETRIES} attempts`);
+              }
+
               runner.setWriting(i);
               const outputPath = join(aetherDir, doc.outputPath);
               await mkdir(dirname(outputPath), { recursive: true });
-              await writeFile(outputPath, response.content, "utf-8");
+              await writeFile(outputPath, content, "utf-8");
             });
           } catch (err) {
             if (controller.signal.aborted) {
@@ -256,12 +282,10 @@ export function registerBuiltinCommands(): void {
             return;
           }
 
-          // Write the docs index (docs/README.md) — deterministic, no LLM call.
           const indexPath = join(aetherDir, "docs", "README.md");
           await mkdir(dirname(indexPath), { recursive: true });
           await writeFile(indexPath, buildDocsIndex(context.name, docsToGenerate), "utf-8");
 
-          // Snapshot this run — the "point" /sync diffs against (file fingerprint + doc set).
           await writeSnapshot(
             targetDir,
             { provider: config.provider, model: config.model },
@@ -320,6 +344,7 @@ export function registerBuiltinCommands(): void {
         return;
       }
 
+      // Metered so one shared cancel signal reaches every model call without threading.
       const provider = new MeteredProvider(createProvider(config));
 
       try {
@@ -445,19 +470,34 @@ export function registerBuiltinCommands(): void {
 
               let content: string;
               if (existing) {
-                // Section-level patch: rewrite only the affected sections, keep the rest.
                 content = await refreshDoc(doc, sharedContext, existing, changeText, provider, config.model, controller.signal);
+                if (!content.trim()) return;
               } else {
-                const response = await chatWithRetry(provider, {
-                  model: config.model,
-                  messages: [{ role: "user", content: buildDocPrompt(doc, sharedContext) }],
-                  temperature: 0.3,
-                  signal: controller.signal,
-                }, {
-                  onRetry: (attempt, maxRetries, _error) =>
-                    runner.setDetail(i, `retry ${attempt}/${maxRetries} — rate limited`),
-                });
-                content = response.content;
+                const MAX_EMPTY_RETRIES = 5;
+                content = "";
+                for (let attempt = 0; attempt < MAX_EMPTY_RETRIES; attempt++) {
+                  if (controller.signal.aborted) break;
+                  if (attempt > 0) {
+                    runner.setDetail(i, `empty response — retry ${attempt}/${MAX_EMPTY_RETRIES - 1}`);
+                    await abortableSleep(10_000 * attempt, controller.signal);
+                    if (controller.signal.aborted) break;
+                  }
+                  const response = await chatWithRetry(provider, {
+                    model: config.model,
+                    messages: [{ role: "user", content: buildDocPrompt(doc, sharedContext) }],
+                    temperature: 0.3,
+                    signal: controller.signal,
+                  }, {
+                    onRetry: (retryAttempt, maxRetries, _error) =>
+                      runner.setDetail(i, `retry ${retryAttempt}/${maxRetries} — rate limited`),
+                  });
+                  content = response.content;
+                  if (content.trim()) break;
+                }
+
+                if (!content.trim()) {
+                  throw new Error(`Model returned empty content for ${doc.label} after ${MAX_EMPTY_RETRIES} attempts`);
+                }
               }
 
               runner.setWriting(i);
