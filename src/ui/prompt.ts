@@ -2,7 +2,7 @@ import type { Key } from "node:readline";
 import chalk from "chalk";
 import { TextPrompt, isCancel } from "@clack/core";
 import { registry } from "../commands/registry.js";
-import { collectDirectories } from "../genesis/context.js";
+import { collectDirectories, collectSourceFiles } from "../genesis/context.js";
 import { loadExcludes } from "../genesis/exclude.js";
 
 import { ACCENT, ACCENT_BOLD, DIM } from "./theme.js";
@@ -11,6 +11,7 @@ const TIPS = [
   `${DIM("tip:")} use ${ACCENT("/genesis")} to analyze your project`,
   `${DIM("tip:")} ${ACCENT("Tab")} to autocomplete commands`,
   `${DIM("tip:")} ${ACCENT("/exclude @")} picks a path to skip`,
+  `${DIM("tip:")} ${ACCENT("/cleancode review @")} picks a file or folder to review`,
   `${DIM("tip:")} ${ACCENT("/clear")} clears the screen`,
   `${DIM("tip:")} just type a message to chat`,
 ];
@@ -18,6 +19,7 @@ const TIPS = [
 const MAX_DROPDOWN = 6;
 const MAX_PATH_DROPDOWN = 10;
 const REMOVE_RE = /^\/exclude\s+(?:remove|rm)\b/;
+const CLEANCODE_RE = /^\/cleancode\b/;
 
 let tipIndex = 0;
 let messageCount = 0;
@@ -30,8 +32,17 @@ async function loadDirPaths(): Promise<string[]> {
   }
 }
 
+async function loadFilePaths(): Promise<string[]> {
+  try {
+    return await collectSourceFiles(process.cwd(), await loadExcludes(process.cwd()));
+  } catch {
+    return [];
+  }
+}
+
 export async function startChat(): Promise<void> {
   let dirs = await loadDirPaths();
+  let files = await loadFilePaths();
   let excluded = await loadExcludes(process.cwd());
 
   for (;;) {
@@ -40,7 +51,7 @@ export async function startChat(): Promise<void> {
       tipIndex++;
     }
 
-    const value = (await new ChatPrompt(dirs, excluded).prompt()) as string | symbol;
+    const value = (await new ChatPrompt(dirs, files, excluded).prompt()) as string | symbol;
 
     // Ctrl+C — leave the same way the old readline "close" handler did.
     if (isCancel(value)) {
@@ -55,8 +66,8 @@ export async function startChat(): Promise<void> {
     if (trimmed.startsWith("/")) {
       const handled = await registry.execute(trimmed);
       if (handled) {
-        // An /exclude may have changed both lists.
         dirs = await loadDirPaths();
+        files = await loadFilePaths();
         excluded = await loadExcludes(process.cwd());
         continue;
       }
@@ -90,6 +101,7 @@ class ChatPrompt extends TextPrompt {
 
   constructor(
     private dirs: string[],
+    private files: string[],
     private excluded: string[],
   ) {
     super({
@@ -101,9 +113,10 @@ class ChatPrompt extends TextPrompt {
     this.on("key", (char: string | undefined, key: Key) => this.onKey(char, key));
   }
 
-  // `/exclude remove @` picks from what's already excluded; otherwise from the project dirs.
   private sourcePaths(): string[] {
-    return REMOVE_RE.test(this.userInput) ? this.excluded : this.dirs;
+    if (REMOVE_RE.test(this.userInput)) return this.excluded;
+    if (CLEANCODE_RE.test(this.userInput)) return [...this.dirs, ...this.files];
+    return this.dirs;
   }
 
   // When the @ picker is open, Enter fills in the highlighted path instead of submitting.

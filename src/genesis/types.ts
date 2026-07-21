@@ -118,3 +118,27 @@ export interface SectionPatch {
   /** For a new section: the existing heading it should be placed after. */
   after?: string;
 }
+
+export interface CleanCodeIssue {
+  file: string;
+  line?: number;
+  severity: "high" | "medium" | "low";
+  category: string;
+  description: string;
+  suggestion: string;
+}
+
+export interface CleanCodeReport {
+  generatedAt: string;
+  provider: string;
+  model: string;
+  paradigm: CleanCodeParadigm;
+  detection: "heuristic" | "hybrid";
+  issues: CleanCodeIssue[];
+}
+
+export interface CleanCodeIgnoreList {
+  patterns: string[];
+}
+
+export type CleanCodeParadigm = "clean-code" | "solid" | "functional" | "google-style";
