@@ -36,10 +36,6 @@ import { join, dirname } from "node:path";
 
 import { ACCENT, DIM, SUCCESS } from "../ui/theme.js";
 
-// Turn a failed connectivity check into an actionable, cause-specific message.
-// Previously every failure — timeout, no network, bad key — collapsed into a
-// single "Cannot reach / make sure the service is running", which was misleading
-// when the real cause was a slow network or an auth problem.
 export function formatPingError(config: { provider: string; baseUrl: string }, ping: PingResult): string {
   if (ping.reason === "timeout") {
     return (
@@ -452,9 +448,6 @@ export function registerBuiltinCommands(): void {
             throw err;
           }
 
-          // Refreshed docs are patched in update-mode — the model gets the current doc
-          // and only revises what the change touched; nothing is deleted. New docs are
-          // generated from scratch.
           const changeText = formatChanges(diff, gitLog);
           const runner = new StepRunner("updating docs");
           for (const { doc } of jobs) runner.addStep(doc.label);

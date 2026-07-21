@@ -3,7 +3,6 @@ export function watchCancelKey(onCancel: () => void): () => void {
   const stdin = process.stdin;
   if (!stdin.isTTY) return () => {};
 
-  const wasRaw = stdin.isRaw;
   stdin.setRawMode(true);
   stdin.resume();
 
@@ -21,7 +20,7 @@ export function watchCancelKey(onCancel: () => void): () => void {
 
   return () => {
     stdin.removeListener("data", onData);
-    stdin.setRawMode(wasRaw);
-    stdin.pause();
+    if (stdin.isTTY) stdin.setRawMode(false);
+    stdin.resume();
   };
 }
