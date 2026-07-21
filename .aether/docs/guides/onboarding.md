@@ -16,7 +16,7 @@ The product vision (from README.md and CONTRIBUTING.md) frames this as a **unive
 - **Explain** → the project speaks (knowledge queries) — *planned, not built*
 - **Export** → the project connects (AI integrations) — *planned, not built*
 
-Today, **Genesis**, **Sync**, **Config**, and **Clean** are implemented. The rest are roadmap items.
+Today, **Genesis**, **Sync**, **Config**, **Clean**, **CleanCode**, and **Prompt** are implemented. The rest are roadmap items.
 
 ## Mental Model: How the Pieces Fit Together
 
@@ -52,10 +52,32 @@ ProjectContext   Digest string         DocDefinition[]      Shared context strin
 - **PlanSync** asks the LLM which existing docs need refresh and which new catalog docs should be added.
 - **Refresh** uses `DOC_UPDATE_INSTRUCTIONS` (smallest-change editing) or `SECTION_PATCH_INSTRUCTIONS` (section-level patches).
 
+### CleanCode Pipeline
+
+ 
+/cleancode review → scanContext → runHeuristics (static) → flaggedFiles → scanCleanCodeHybrid (AI) → report.md
+ 
+
+- **Heuristics** (`genesis/cleancode-heuristics.ts`) — Fast static detectors for long functions, deep nesting, magic numbers, dead code, poor naming. Runs per paradigm (clean-code, SOLID, functional, Google-style).
+- **Hybrid AI Review** (`genesis/cleancode.ts`) — If a provider is configured and reachable, flagged files are sent to the LLM with a paradigm-specific prompt (`buildCleanCodeScanPrompt`). Returns structured violations (file, line, severity, category, description, suggestion).
+- **Report** — Markdown written to `.aether/clean/report.md` with summary table, per-file issues, and AI cleanup instructions.
+- **Ignore & Paradigm** — Patterns stored in `.aether/settings/cleancode-ignore.json`; paradigm in `.aether/settings/cleancode-paradigm.json`.
+
+### Prompt Pipeline
+
+ 
+/prompt <intent> → scanContext → checkStaleness → buildDocsContext → OPTIMIZE_PROMPT (LLM) → .aether/prompts/<slug>.md
+ 
+
+- **Staleness Check** — Compares current fingerprint vs saved snapshot; warns if docs are outdated.
+- **Context Building** — Reads up to 24k chars from key docs (README, AI_CONTEXT, architecture) + directory tree (8k).
+- **Optimization** — Single LLM call with `OPTIMIZE_PROMPT` + `buildOptimizePrompt` produces a file-referencing, convention-aware prompt for another AI assistant.
+- **Output** — Saved with metadata header (intent, timestamp, provider/model, stale warning).
+
 ### Cost Estimation & Metering
 
 - **Pricing** (`pricing/index.ts`) — Fetches live model pricing from OpenRouter (cached 24h) with a static fallback table for 10 common models. Returns per-token input/output costs.
-- **Estimation** (`genesis/estimate.ts`) — Computes token counts and cost ranges for genesis and sync runs before any LLM calls. Used to show the user a cost estimate and prompt for confirmation.
+- **Estimation** (`genesis/estimate.ts`) — Computes token counts and cost ranges for genesis, sync, and cleancode runs before any LLM calls. Used to show the user a cost estimate and prompt for confirmation.
 - **Metering** (`providers/metered.ts`) — Wraps any `LLMProvider` to track actual token usage (prompt, completion, total) and call counts across the session. Falls back to estimation if the provider doesn't return usage.
 
 ### The CLI Shell
@@ -97,6 +119,13 @@ ProjectContext   Digest string         DocDefinition[]      Shared context strin
 | Customize cancellation behavior | `ui/cancel.ts` | `watchCancelKey()` key bindings |
 | Change confirmation UX | `ui/confirm.ts` | `promptConfirm()` fallback logic |
 | Format cost display differently | `ui/cost.ts` | `formatUSD()`, `formatEstimate()` |
+| **Modify clean-code heuristics** | `genesis/cleancode-heuristics.ts` | `LONG_FUNCTION_LINES`, `DEEP_NESTING_LEVELS`, detectors per paradigm |
+| **Change clean-code AI prompt** | `prompts/pipeline/cleancode.ts` | `PARADIGMS`, `buildCleanCodeScanPrompt()` |
+| **Adjust clean-code hybrid flow** | `genesis/cleancode.ts` | `scanCleanCodeHybrid`, `flaggedFiles`, `buildCleanCodeMarkdown` |
+| **Manage clean-code ignore/paradigm** | `genesis/cleancode.ts` + `commands/cleancode.ts` | `loadCleanCodeIgnore`, `addCleanCodeIgnorePattern`, `loadCleanCodeParadigm`, `setCleanCodeParadigm` |
+| **Modify prompt optimization** | `prompts/pipeline/optimize.ts` | `OPTIMIZE_PROMPT`, `buildOptimizePrompt()` |
+| **Change prompt staleness check** | `commands/prompt.ts` | `checkStaleness`, `buildDocsContext`, `parseOptimized` |
+| **Adjust prompt output location** | `commands/prompt.ts` | `uniquePromptPath`, `composeFile` (`.aether/prompts/`) |
 
 ## Key Decisions & The Reasoning
 
@@ -115,6 +144,10 @@ ProjectContext   Digest string         DocDefinition[]      Shared context strin
 | **OpenRouter as pricing source** | Single source for 100+ models; 24h cache avoids rate limits; static fallback for offline | Could add more sources if needed |
 | **Cancellation via raw stdin + AbortController** | Works in TTY; propagates to in-flight `chat()`/`chatStream()` calls | Stable; `watchCancelKey()` is reusable |
 | **Single-key confirmation (y/n/ESC)** | Fast, no Enter required; non-TTY falls back to default | Stable; `promptConfirm()` is reusable |
+| **Heuristics-first clean-code review** | Fast static scan filters files before expensive AI call; paradigm-specific detectors keep it focused | Core to cleancode — unlikely to change |
+| **Paradigm-driven AI prompts** | Clean Code, SOLID, Functional, Google-style each have distinct violation categories; prompt built per paradigm | Extensible — new paradigms can be added to `PARADIGMS` |
+| **Prompt optimization as a separate pipeline** | Generates prompts for *other* AIs, not for Aether itself; uses project knowledge base as context | New capability — may evolve with use cases |
+| **Staleness warning before prompt generation** | Prevents generating optimized prompts from outdated docs; compares fingerprint vs snapshot | Core safety — unlikely to change |
 
 ## Making Your First Change: Walkthrough
 
@@ -122,7 +155,7 @@ ProjectContext   Digest string         DocDefinition[]      Shared context strin
 
 ### 1. Create the Prompt
 **File:** `src/prompts/docs/security.ts`
-```typescript
+ typescript
 export const SECURITY_PROMPT = `Generate a Security Overview document...
 - Authentication mechanisms (JWT, sessions, API keys, OAuth)
 - Authorization patterns (RBAC, ABAC, middleware, guards)
@@ -130,17 +163,17 @@ export const SECURITY_PROMPT = `Generate a Security Overview document...
 - Input validation & sanitization
 - Audit logging
 Only document patterns explicitly found in the code.`;
-```
+ 
 
 ### 2. Register the Prompt
 **File:** `src/prompts/index.ts`
-```typescript
+ typescript
 export { SECURITY_PROMPT } from "./docs/security.js";
-```
+ 
 
 ### 3. Add the DocDefinition
 **File:** `src/genesis/docs.ts`
-```typescript
+ typescript
 import { SECURITY_PROMPT } from "../prompts/index.js";
 
 // In DOC_DEFINITIONS array, after DIAGRAMS:
@@ -153,30 +186,98 @@ import { SECURITY_PROMPT } from "../prompts/index.js";
   summary: "Authentication, authorization, and data protection patterns",
   prompt: SECURITY_PROMPT,
 }
-```
+ 
 
 ### 4. Make It Conditionally Planned
 **File:** `src/genesis/planner.ts`
-```typescript
+ typescript
 // In PLANNER_PROMPT (the string constant), add to "Conditional known IDs":
 // - security (if auth middleware, JWT handling, RBAC, encryption, or audit logging detected)
-```
+ 
 
 ### 5. Verify It Works
-```bash
+ bash
 npm run dev
 # In the chat:
 /genesis /path/to/test/project
-```
+ 
 Check `.aether/docs/architecture/security.md` is generated. Run `/sync` after adding auth code to see it refresh.
 
 ### 6. Type Check & Build
-```bash
+ bash
 npm run typecheck
 npm run build
-```
+ 
 
 ---
+
+**Task:** *Add a new clean-code paradigm (e.g., "pragmatic") that focuses on practical maintainability over dogma.*
+
+### 1. Define the Paradigm
+**File:** `src/prompts/pipeline/cleancode.ts`
+ typescript
+// In PARADIGMS record, add:
+"pragmatic": {
+  label: "Pragmatic",
+  focus: "Practical maintainability — favor clarity, avoid premature abstraction, tolerate duplication over wrong abstraction",
+  categories: "premature-abstraction | unclear-intent | over-engineering | missing-error-handling | inconsistent-pattern | other",
+}
+ 
+
+### 2. Add to Type Union
+**File:** `src/genesis/types.ts`
+ typescript
+export type CleanCodeParadigm = "clean-code" | "solid" | "functional" | "google-style" | "pragmatic";
+ 
+
+### 3. Add Heuristic Detectors
+**File:** `src/genesis/cleancode-heuristics.ts`
+ typescript
+// In runHeuristics(), add case for "pragmatic":
+case "pragmatic":
+  return [
+    ...detectLongFunctions(file),
+    ...detectPoorNaming(file),
+    ...detectDeadCode(file),
+  ];
+ 
+
+### 4. Update Paradigm Helpers
+**File:** `src/prompts/pipeline/cleancode.ts`
+ typescript
+// isCleanCodeParadigm() in cleancode.ts and listParadigms() will automatically include it
+ 
+
+### 5. Verify
+ bash
+npm run dev
+/cleancode paradigm pragmatic
+/cleancode review
+ 
+
+---
+
+**Task:** *Change the prompt optimization to include test file patterns in the generated prompt.*
+
+### 1. Modify the Optimization Prompt
+**File:** `src/prompts/pipeline/optimize.ts`
+ typescript
+// In OPTIMIZE_PROMPT, add instruction:
+// - Include test file patterns and conventions (e.g., *.test.ts, __tests__/, vitest/jest)
+ 
+
+### 2. Adjust Context Building
+**File:** `src/commands/prompt.ts`
+ typescript
+// In buildDocsContext(), ensure test-related docs are included if they exist
+ 
+
+### 3. Verify
+ bash
+npm run dev
+/prompt "add a new API endpoint with tests"
+ 
+Check `.aether/prompts/<slug>.md` references test conventions.
 
 ## Gotchas: Non-Obvious Things That Trip People Up
 
@@ -188,7 +289,7 @@ npm run build
 
 4. **No tests exist** — `package.json` has no test script, no test files in `src/`. Any refactor is manual verification only. Adding a test harness would be a major contribution.
 
-5. **Command registration order matters** — In `cli/index.ts`, commands register in this sequence: `help`, `builtins`, `config`, `clean`, `exclude`. The registry is a `Map`; later registrations with same name would overwrite (but none do).
+5. **Command registration order matters** — In `cli/index.ts`, commands register in this sequence: `help`, `builtins`, `config`, `clean`, `cleancode`, `exclude`, `prompt`. The registry is a `Map`; later registrations with same name would overwrite (but none do).
 
 6. **Free-text in chat is keyword-matched, not LLM-powered** — `ui/prompt.ts` `respond()` matches lowercase input against hardcoded keyword arrays (`help|ajuda|comando`, `genesis|analisa|documenta`, etc.). It's not an AI chat.
 
@@ -200,7 +301,7 @@ npm run build
 
 10. **Custom docs are limited to 5** — `MAX_CUSTOM_DOCS = 5` in `planner.ts`. The planner can propose more but they're truncated.
 
-11. **Cost estimation uses heuristics, not exact counts** — `estimateGenesis()` and `estimateSync()` approximate tokens from chars (÷4), apply output multipliers (0.7–1.3×), and assume distillation when context exceeds budget. Actual usage may differ.
+11. **Cost estimation uses heuristics, not exact counts** — `estimateGenesis()`, `estimateSync()`, and `estimateCleanCode()` approximate tokens from chars (÷4), apply output multipliers (0.7–1.3×), and assume distillation when context exceeds budget. Actual usage may differ.
 
 12. **Pricing cache is 24h** — `pricing/index.ts` caches OpenRouter model list for 24h. New models or price changes won't reflect until cache expires or is manually cleared (`/clean cache`).
 
@@ -211,6 +312,14 @@ npm run build
 15. **Confirmation defaults to `true` in non-TTY** — `promptConfirm()` returns the fallback (default `true`) when stdin is not a TTY. Scripts piping input will auto-confirm unless you pass `--yes` explicitly.
 
 16. **Excluded paths are respected during scan and sync** — `genesis/context.ts` and `genesis/sync.ts` both call `isExcluded()` from `genesis/exclude.ts`. Add exclusions via `/exclude <path>` or type `@` in the prompt to pick from a dropdown. Exclusions persist in `.aether/settings/exclude.json` per project.
+
+17. **Clean-code review requires a configured provider for AI analysis** — Heuristics run always; hybrid AI review only runs if `loadConfig()` returns a valid provider and `ping()` succeeds. Use `--yes` to skip cost confirmation.
+
+18. **Clean-code ignore patterns are globs, not regexes** — `matchesPattern()` converts `**` → `.*`, `*` → `[^/]*`, `?` → `.`. Stored in `.aether/settings/cleancode-ignore.json`.
+
+19. **Prompt optimization reads from `.aether/docs/`, not source files directly** — `buildDocsContext()` loads up to 24k chars from key docs + 8k from directory tree. If docs are stale, the optimized prompt may miss recent changes (staleness warning is shown).
+
+20. **Prompt output goes to `.aether/prompts/`, not the chat** — `/prompt` writes a markdown file with metadata header; it does not print the optimized prompt to stdout.
 
 ## Final Note
 

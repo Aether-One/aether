@@ -15,13 +15,13 @@ Aether is a CLI tool that transforms any codebase into an AI-native workspace by
 | Layer | Responsibility |
 |-------|----------------|
 | **CLI Entry** | Argument parsing, version flag, interactive/non-interactive mode detection, startup animation/banner |
-| **Command Registry** | Slash-command routing (`/genesis`, `/sync`, `/config`, `/clean`, `/exclude`, `/help`, `/exit`, `/clear`) |
+| **Command Registry** | Slash-command routing (`/genesis`, `/sync`, `/config`, `/clean`, `/exclude`, `/cleancode`, `/prompt`, `/help`, `/exit`, `/clear`) |
 | **Genesis Pipeline** | Project scanning → context building → doc planning → distillation → parallel doc generation → snapshot |
 | **Provider Abstraction** | Unified interface for OpenAI-compatible APIs (OpenAI, Anthropic, Gemini, OpenRouter) with retry/rate-limit handling |
 | **Configuration** | Global (`~/.aether/config.json`) + per-project overrides; env var `AETHER_API_KEY` fallback |
 | **UI System** | Animated startup, interactive readline chat with dropdown completion, step runners with spinners, cancellation/confirmation prompts |
 | **File System Ops** | Repository walking, fingerprinting (SHA-256), git integration, cache management, output writing |
-| **Cost Estimation** | Token/cost estimation for genesis/sync using live OpenRouter catalog or static fallback pricing |
+| **Cost Estimation** | Token/cost estimation for genesis/sync/cleancode using live OpenRouter catalog or static fallback pricing |
 | **Usage Metering** | Tracks prompt/completion tokens and call counts per provider session |
 | **Pricing Catalog** | 24h-cached OpenRouter model pricing with static fallback for 10 common models |
 | **Token Utilities** | Token estimation helpers for cost calculations |
@@ -35,7 +35,9 @@ Aether is a CLI tool that transforms any codebase into an AI-native workspace by
 | **Fingerprinting** | SHA-256 hashes of tracked files; git commit/branch/dirty; git log since last snapshot |
 | **Utilities** | SHA-256 content hashing (CRLF-normalized); safe env int parsing |
 | **Exclude Management** | Per-project path exclusions stored in `.aether/settings/exclude.json`; reduces scan size and cost |
-| **Path Mention Completion** | `@` inline dropdown in chat for quick path selection and exclusion
+| **Path Mention Completion** | `@` inline dropdown in chat for quick path selection and exclusion |
+| **Clean Code Review** | Heuristic + hybrid AI scan for code quality issues; paradigm-based rules (Clean Code, SOLID, Functional, Google Style); ignore patterns; markdown reports |
+| **Prompt Optimization** | Generates optimized, file-referencing prompts for other AI assistants from `.aether/docs/` knowledge base
 
 ## System Components
 
@@ -48,6 +50,8 @@ Aether is a CLI tool that transforms any codebase into an AI-native workspace by
 | **Config Command** | `src/commands/config.ts` | Manages provider/model/URL/key; quick-setup for 4 providers; show/set subcommands |
 | **Clean Command** | `src/commands/clean.ts` | Removes global config, cache, or per-project data; lists projects with sizes |
 | **Exclude Command** | `src/commands/exclude.ts` | Manages per-project path exclusions (add/remove/list) stored in `.aether/settings/exclude.json` |
+| **CleanCode Command** | `src/commands/cleancode.ts` | Hybrid clean-code review: heuristic scan → optional AI review → markdown report; manages ignore patterns and paradigms |
+| **Prompt Command** | `src/commands/prompt.ts` | Generates optimized prompts for other AI assistants from `.aether/docs/`; staleness check; cost confirmation |
 | **Context Scanner** | `src/genesis/context.ts` | Walks repo (max 10k files, depth 12), collects config/vision/entry/source files, builds directory tree |
 | **Exclude Manager** | `src/genesis/exclude.ts` | Loads, adds, removes, and checks path exclusions against scanned files |
 | **Digest Builder** | `src/genesis/digest.ts` | Extracts signals (routes, domain logic, tests) and symbols for planner context |
@@ -55,6 +59,8 @@ Aether is a CLI tool that transforms any codebase into an AI-native workspace by
 | **Distiller** | `src/genesis/distill.ts` | Incrementally summarizes large file sets into budgeted notes with chunk caching (SHA-256) |
 | **Doc Generator** | `src/genesis/docs.ts` | 13 predefined `DocDefinition`s across 5 sections; builds prompts from `src/prompts/`; writes markdown |
 | **Sync Engine** | `src/genesis/sync.ts` | Diffs fingerprints, plans refreshes/additions, supports section-level patches, merges metadata |
+| **Clean Code Heuristics** | `src/genesis/cleancode-heuristics.ts` | Static detectors for long functions, deep nesting, magic numbers, dead code, poor naming per paradigm |
+| **Clean Code Engine** | `src/genesis/cleancode.ts` | Hybrid scan orchestration: heuristics → flagged files → AI review → report generation; ignore/paradigm persistence |
 | **Provider Factory** | `src/providers/factory.ts` | Creates `OpenAICompatibleProvider` for `openai`/`gemini`/`anthropic`/`openrouter` |
 | **OpenAI-Compatible Provider** | `src/providers/openai-compatible.ts` | Implements `LLMProvider` interface: `chat`, `chatStream`, `ping` |
 | **Anthropic Provider** | `src/providers/anthropic.ts` | Native Anthropic API support via OpenAI-compatible adapter with custom headers |
@@ -62,7 +68,7 @@ Aether is a CLI tool that transforms any codebase into an AI-native workspace by
 | **Retry Logic** | `src/providers/retry.ts` | Exponential backoff; rate-limit (429) detection with provider-suggested delay upgrade |
 | **Metered Provider** | `src/providers/metered.ts` | Wraps any `LLMProvider` to track token usage and call counts per session |
 | **Pricing Catalog** | `src/pricing/index.ts` | 24h-cached OpenRouter model pricing with static fallback for 10 common models |
-| **Cost Estimation** | `src/genesis/estimate.ts` | Token/cost estimation for genesis/sync using live or static pricing |
+| **Cost Estimation** | `src/genesis/estimate.ts` | Token/cost estimation for genesis/sync/cleancode using live or static pricing |
 | **Token Utilities** | `src/util/tokens.ts` | Token estimation helpers for cost calculations |
 | **Interactive Prompt** | `src/ui/prompt.ts` | Readline loop with `/` command dropdown, keyword responses, rotating tips, `@` path mentions |
 | **Step Runner** | `src/ui/steps.ts` | `StepRunner` (sequential/pooled steps with spinners), `LineSpinner` (braille animation) |
@@ -72,27 +78,29 @@ Aether is a CLI tool that transforms any codebase into an AI-native workspace by
 | **Utilities** | `src/util/hash.ts`, `src/util/env.ts` | SHA-256 content hashing (CRLF-normalized); safe env int parsing |
 | **Cancellation Watcher** | `src/ui/cancel.ts` | Raw-mode stdin listener for ESC/q/Ctrl+C to abort long-running operations |
 | **Confirmation Prompt** | `src/ui/confirm.ts` | Single-key y/n confirmation with raw-mode TTY support and fallback |
-| **Cost Formatting** | `src/ui/cost.ts` | USD formatting and multi-line cost estimate display for genesis/sync confirmation |
+| **Cost Formatting** | `src/ui/cost.ts` | USD formatting and multi-line cost estimate display for genesis/sync/cleancode confirmation |
 
 ## Communication Patterns
 
 | Pattern | Usage |
 |---------|-------|
-| **Slash Commands** | Primary CLI interaction: `/genesis`, `/sync`, `/config`, `/clean`, `/exclude`, `/help`, `/exit`, `/clear` |
+| **Slash Commands** | Primary CLI interaction: `/genesis`, `/sync`, `/config`, `/clean`, `/exclude`, `/cleancode`, `/prompt`, `/help`, `/exit`, `/clear` |
 | **Interactive Chat** | Readline-based REPL with tab completion and dropdown suggestions for commands and `@` path mentions |
 | **LLM Request/Response** | `LLMProvider.chat(request)` → `ChatResponse`; `chatStream` for streaming; all via OpenAI-compatible HTTP |
 | **File System** | Synchronous/async reads for scanning; writes for `.aether/docs/`, `.aether/docs/README.md`, snapshots, cache |
 | **Git Subprocess** | `execFileSync` for `git rev-parse`, `git status`, `git log` (fingerprinting, sync diffs) |
 | **Inter-Process (SEA)** | Single executable bundles Node + script via `esbuild` + `postject` (optional distribution) |
-| **Cost Estimation Flow** | `estimateGenesis`/`estimateSync` → `getModelPricing` (live OpenRouter catalog → static fallback) → `formatEstimate` for user confirmation |
+| **Cost Estimation Flow** | `estimateGenesis`/`estimateSync`/`estimateCleanCode` → `getModelPricing` (live OpenRouter catalog → static fallback) → `formatEstimate` for user confirmation |
 | **Usage Metering** | `MeteredProvider` wraps inner provider; tracks `promptTokens`, `completionTokens`, `calls`; exposes `usage` totals |
 | **Cancellation Signal** | `AbortController` + `watchCancelKey` (ESC/q/Ctrl+C) → injects `signal` into LLM requests via `MeteredProvider.setSignal` |
-| **Confirmation Gate** | `promptConfirm` (raw-mode y/n) gates genesis/sync execution after cost estimate display |
+| **Confirmation Gate** | `promptConfirm` (raw-mode y/n) gates genesis/sync/cleancode execution after cost estimate display |
 | **Retry with Backoff** | `chatWithRetry` wraps `provider.chat`; on 429 upgrades to `RATE_LIMIT_OPTIONS` (6 retries, 15s base); respects abort signals |
 | **Pricing Cache** | `loadCatalog` fetches OpenRouter models (8s timeout), caches to `~/.aether/cache/pricing.json` for 24h |
 | **Token Estimation** | `estimateTokens` (chars/4) used when provider doesn't return usage; feeds into `MeteredProvider` and cost estimates |
 | **Exclude Filtering** | `isExcluded()` checks scanned paths against `.aether/settings/exclude.json` before adding to context |
-| **Path Mention Resolution** | `@partial` in chat triggers dropdown of project directories; `/exclude remove @` shows excluded paths instead
+| **Path Mention Resolution** | `@partial` in chat triggers dropdown of project directories; `/exclude remove @` shows excluded paths instead; `/cleancode review @` shows source files |
+| **Clean Code Review Flow** | Heuristic scan → flagged files → optional AI review (hybrid) → markdown report with severity icons and AI cleanup instructions |
+| **Prompt Optimization Flow** | Staleness check → docs context build → single optimization prompt → SLUG extraction → unique file write to `.aether/prompts/` |
 
 ## Authentication & Authorization
 

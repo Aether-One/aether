@@ -34,7 +34,7 @@ If you want to use AI-powered documentation generation, you'll need an API key f
 npm run dev
  
 
-This starts the interactive CLI directly from TypeScript source. You'll see a startup animation (unless you pass `--no-animation`), then a prompt where you can type `/genesis`, `/config`, `/help`, `/exclude`, `/clean`, `/exit`, `/clear`, etc.
+This starts the interactive CLI directly from TypeScript source. You'll see a startup animation (unless you pass `--no-animation`), then a prompt where you can type `/genesis`, `/config`, `/help`, `/exclude`, `/clean`, `/cleancode`, `/prompt`, `/exit`, `/clear`, etc.
 
 ### Type-check only
  bash
@@ -81,7 +81,7 @@ Try a command:
 /help
  
 
-You'll see the list of available commands (`/genesis`, `/sync`, `/config`, `/clean`, `/exclude`, `/exit`, `/clear`).
+You'll see the list of available commands (`/genesis`, `/sync`, `/config`, `/clean`, `/exclude`, `/cleancode`, `/prompt`, `/exit`, `/clear`).
 
 Exit with:
  
@@ -93,3 +93,5 @@ Exit with:
 - **Contributing guide** — See `CONTRIBUTING.md` in the repository root for branch naming, commit conventions, and the PR process.
 - **Try it on a project** — Run `/genesis` inside any codebase to generate its `.aether/` knowledge base.
 - **Exclude paths** — Use `/exclude <path>` (or type `@` in the prompt to pick one) to skip large directories that don't need documenting during `/genesis` or `/sync`. Excludes are stored in `.aether/settings/exclude.json`.
+- **Clean code review** — Run `/cleancode review` to scan a project or file for clean code violations (heuristic + optional AI hybrid). Reports are written to `.aether/clean/report.md`.
+- **Optimized prompts** — Run `/prompt <intent>` to generate an optimized, file-referencing prompt for another AI assistant based on the project's `.aether/docs/`.

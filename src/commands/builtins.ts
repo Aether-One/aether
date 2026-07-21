@@ -40,7 +40,7 @@ import { ACCENT, DIM, SUCCESS } from "../ui/theme.js";
 // Previously every failure — timeout, no network, bad key — collapsed into a
 // single "Cannot reach / make sure the service is running", which was misleading
 // when the real cause was a slow network or an auth problem.
-function formatPingError(config: { provider: string; baseUrl: string }, ping: PingResult): string {
+export function formatPingError(config: { provider: string; baseUrl: string }, ping: PingResult): string {
   if (ping.reason === "timeout") {
     return (
       `${chalk.red("  ✗")} Connection to ${config.provider} timed out (${ping.message}).\n` +
@@ -617,7 +617,7 @@ function showSyncHelp(): void {
   process.stdout.write(`     ${DIM("Run")} /genesis ${DIM("first if there's no snapshot yet.")}\n\n`);
 }
 
-function formatError(err: unknown): string {
+export function formatError(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err);
 
   // Rate limit (429)

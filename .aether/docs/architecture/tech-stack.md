@@ -25,6 +25,8 @@
 - **Cost Estimation & Metering** — Built-in token pricing catalog (OpenRouter + static fallback), usage tracking via `MeteredProvider`, and cost formatting for user confirmation prompts.
 - **Interactive CLI** — Uses `@clack/core` for spinners, prompts, and cancellation handling (ESC/q/Ctrl+C).
 - **Distillation Caching** — Incremental LLM-based file distillation with content-addressable caching (SHA-256) to avoid re-processing unchanged files during `/genesis` and `/sync`.
+- **Clean Code Review** — Hybrid static + AI analysis (`/cleancode review`) with heuristic detectors (long functions, deep nesting, magic numbers, dead code, poor naming) and paradigm support (Clean Code, SOLID, Functional, Google Style).
+- **Optimized Prompt Generation** — `/prompt` command generates file-referencing prompts for other AI assistants using project knowledge base from `.aether/docs/`.
 
 ## Core Dependencies
 
@@ -42,5 +44,3 @@
 | Category | Technology | Version | Purpose |
 |----------|------------|---------|---------|
 | **Development Tools** | @types/node | 22.15.21 | Type definitions for Node.js APIs (fs, path, crypto, child_process, readline) |
-| | tsx | 4.19.4 | Development runner (`npm run dev`); executes TS directly |
-| | TypeScript Compiler (tsc) | 5.8.3 | Compiles `src/` → `dist/`; emits declarations, source maps |

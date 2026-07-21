@@ -1,14 +1,12 @@
 # AI Context — Aether
 
 ## Project Identity
-Aether is an open-source CLI that transforms any codebase into an AI-native workspace by building a complete knowledge base through static analysis and optional LLM enrichment, outputting to a `.aether/` directory.
-
----
+Aether is an open-source CLI that transforms any codebase into an AI-native workspace by building a complete knowledge base through static analysis and optional LLM enrichment, outputting to a `.aether/` directory. It also provides a hybrid clean-code review system combining static heuristics with optional AI analysis.
 
 ## Always Follow
 
 ### Architecture Patterns
-- **CLI entry point**: `src/cli/index.ts` exports `main()`; registers commands in order: `registerHelpCommand()`, `registerBuiltinCommands()`, `registerConfigCommand()`, `registerCleanCommand()`, `registerExcludeCommand()`; starts interactive chat via `startChat()` after banner/animation.
+- **CLI entry point**: `src/cli/index.ts` exports `main()`; registers commands in order: `registerHelpCommand()`, `registerBuiltinCommands()`, `registerConfigCommand()`, `registerCleanCommand()`, `registerCleanCodeCommand()`, `registerExcludeCommand()`, `registerPromptCommand()`; starts interactive chat via `startChat()` after banner/animation.
 - **Command registry**: `src/commands/registry.ts` exports `CommandRegistry` class and singleton `registry`; commands implement `{ name, description, usage?, handler: (args: string) => Promise<void> | void }`; executed via `registry.execute(input)` parsing `/name args`.
 - **Provider factory**: `src/providers/factory.ts` exports `createProvider(config: AetherConfig)` returning `LLMProvider`; switches on `config.provider` (`openai` | `anthropic` | `gemini` | `openrouter`) instantiating `OpenAICompatibleProvider` (anthropic has TODO for different API format).
 - **Retry wrapper**: `src/providers/retry.ts` exports `chatWithRetry(provider, request, options?)` with exponential backoff, rate-limit (429) detection, provider-suggested delay extraction, and `createRetryLogger()` for stdout progress.
@@ -20,10 +18,12 @@ Aether is an open-source CLI that transforms any codebase into an AI-native work
 - **Interactive CLI**: `src/ui/prompt.ts` uses `node:readline` with completer for `/` commands, dropdown suggestions (ANSI cursor save/restore), rotating tips, pattern-matched responses.
 - **Step runner**: `src/ui/steps.ts` exports `StepRunner` (sequential/pooled steps with spinners) and `LineSpinner` (braille frames, succeed/fail).
 - **Theme**: `src/ui/theme.ts` exports `ACCENT_HEX = "#895bf4"`, `ACCENT`, `ACCENT_BOLD`, `DIM`, `SUCCESS`, `WARN`, `ERROR` via `chalk`.
-- **Constants via env**: `src/genesis/constants.ts` uses `envInt(name, fallback)` for `MAX_FILE_SIZE`, `MAX_TOTAL_CHARS`, `MAX_FILES_WALKED`, `MAX_WALK_DEPTH`, `DOC_CONTEXT_BUDGET`, `GEN_CONCURRENCY`, `DISTILL_CONCURRENCY`.
+- **Constants via env**: `src/genesis/constants.ts` uses `envInt(name, fallback)` for `MAX_FILE_SIZE`, `MAX_TOTAL_CHARS`, `MAX_FILES_WALKED`, `MAX_WALK_DEPTH`, `DOC_CONTEXT_BUDGET`, `GEN_CONCURRENCY`, `DISTILL_CONCURRENCY`, `CLEANCODE_CONTEXT_BUDGET`.
 - **Hashing**: `src/util/hash.ts` exports `hashContent(content)` normalizing CRLF→LF, returning SHA-256 hex.
 - **Git integration**: `src/genesis/fingerprint.ts` uses `execFileSync` for `git rev-parse`, `git status --porcelain`, `git log`.
 - **Exclude system**: `src/genesis/exclude.ts` manages `.aether/settings/exclude.json` with `loadExcludes`, `addExclude`, `removeExclude`; `src/commands/exclude.ts` registers `/exclude` command for add/list/remove; `src/ui/prompt.ts` integrates `@` path mentions with exclude-aware dropdown.
+- **Clean-code review**: `src/genesis/cleancode-heuristics.ts` provides `scanCleanCodeHeuristics` (static AST-based scan); `src/genesis/cleancode.ts` provides `scanCleanCodeHybrid` (AI hybrid review), `estimateCleanCode`, `buildCleanCodeReport`, `buildCleanCodeMarkdown`, `writeCleanCodeMarkdown`; `src/commands/cleancode.ts` registers `/cleancode` command with `review`, `ignore`, `paradigm` subcommands; `src/genesis/estimate.ts` provides `estimateCleanCode` cost estimation; `CLEANCODE_CONTEXT_BUDGET = 48_000` chars via `envInt`.
+- **Prompt optimization**: `src/commands/prompt.ts` registers `/prompt` command; `src/prompts/pipeline/optimize.ts` provides `OPTIMIZE_PROMPT` and `buildOptimizePrompt` for turning developer intent into optimized AI prompts.
 
 ### Coding Standards
 - **TypeScript only** (`"type": "module"`, `"strict": true` in `tsconfig.json`); no `any`.
@@ -36,6 +36,10 @@ Aether is an open-source CLI that transforms any codebase into an AI-native work
 - **Planner retries**: `MAX_PLAN_ATTEMPTS = 3`, temperature 0 on retry, falls back to `CORE_IDS` (6 hardcoded doc IDs).
 - **Custom docs limit**: `MAX_CUSTOM_DOCS = 5` via `dedupeCustomDocs().slice(0, 5)`.
 - **Exclude system**: `src/genesis/exclude.ts` manages `.aether/settings/exclude.json`; `src/commands/exclude.ts` registers `/exclude` command; `src/ui/prompt.ts` integrates `@` path mentions with exclude-aware dropdown.
+- **Clean-code paradigms**: `CleanCodeParadigm` type (`clean-code` | `solid` | `functional` | `google-style`) in `src/genesis/types.ts`; paradigms defined in `src/prompts/pipeline/cleancode.ts` with `PARADIGMS` record; `DEFAULT_PARADIGM = "clean-code"`.
+- **Cost estimation**: `src/pricing/index.ts` provides `getModelPricing` with OpenRouter live catalog + static fallback; `src/genesis/estimate.ts` provides `estimateCleanCode` for clean-code review cost estimation.
+- **Interactive cost confirmation**: `/cleancode review` prompts for confirmation with cost estimate unless `--yes` flag provided.
+- **File-aware @ picker**: `src/ui/prompt.ts` `ChatPrompt` filters `@` path mentions for `/cleancode` and `/exclude remove` commands.
 
 ### Never Do
 - **Never use `any`** — strict TypeScript enforced.
@@ -53,6 +57,8 @@ Aether is an open-source CLI that transforms any codebase into an AI-native work
 - **Never use `chalk` directly without theme** — import `ACCENT`, `DIM`, etc. from `../ui/theme.js`.
 - **Never block event loop** — `sleep(ms)` helper wraps `setTimeout`; spinners use intervals.
 - **Never ignore exclude paths** — `collectDirectories` in `src/genesis/context.ts` filters by `loadExcludes`; `src/ui/prompt.ts` filters `@` mentions against excludes.
+- **Never skip cost confirmation** — `/cleancode review` requires `--yes` flag to bypass cost estimate prompt.
+- **Never exceed clean-code context budget** — `CLEANCODE_CONTEXT_BUDGET = 48_000` chars enforced in `scanCleanCodeHybrid`.
 
 ## Never Do
 
@@ -94,16 +100,21 @@ Aether is an open-source CLI that transforms any codebase into an AI-native work
 | **Only runtime dependency is `chalk`** | `package.json` `dependencies: { "chalk": "^5.4.1" }`. |
 | **Exclude system for skipping paths** | `src/genesis/exclude.ts` manages `.aether/settings/exclude.json`; `src/commands/exclude.ts` registers `/exclude` command; `src/ui/prompt.ts` integrates `@` path mentions with exclude-aware dropdown. |
 | **Interactive prompt integrates exclude system** | `src/ui/prompt.ts` `ChatPrompt` class filters `@` path mentions against excludes; `/exclude remove @` shows excluded paths in dropdown. |
+| **Hybrid clean-code review: heuristics + optional AI** | `src/genesis/cleancode-heuristics.ts` `scanCleanCodeHeuristics` (static); `src/genesis/cleancode.ts` `scanCleanCodeHybrid` (AI); `src/commands/cleancode.ts` `/cleancode review` with cost confirmation. |
+| **Clean-code paradigms configurable** | `CleanCodeParadigm` type in `src/genesis/types.ts`; `PARADIGMS` record in `src/prompts/pipeline/cleancode.ts` with 4 paradigms; `/cleancode paradigm` command to set. |
+| **Cost estimation before AI review** | `src/pricing/index.ts` `getModelPricing`; `src/genesis/estimate.ts` `estimateCleanCode`; `/cleancode review` prompts with cost unless `--yes`. |
+| **Prompt optimization command** | `src/commands/prompt.ts` registers `/prompt`; `src/prompts/pipeline/optimize.ts` `OPTIMIZE_PROMPT` and `buildOptimizePrompt` turn intent into optimized AI prompt. |
+| **File-aware @ picker for cleancode/exclude** | `src/ui/prompt.ts` `ChatPrompt.sourcePaths()` filters by command regex (`CLEANCODE_RE`, `REMOVE_RE`).
 
 ## Conventions
 
 ### Naming
-- **Files**: kebab-case (`build-sea.mjs`, `ai-context.ts`, `openai-compatible.ts`).
+- **Files**: kebab-case (`build-sea.mjs`, `ai-context.ts`, `openai-compatible.ts`, `cleancode-heuristics.ts`, `cleancode.ts`).
 - **Exports**: named exports; default export only for `CommandRegistry` instance (`registry`).
-- **Types**: PascalCase interfaces (`AetherConfig`, `ProjectContext`, `LLMProvider`); type aliases for unions (`DocSection`).
-- **Constants**: UPPER_SNAKE_CASE (`MAX_FILE_SIZE`, `ACCENT_HEX`, `SECTION_ORDER`).
-- **Functions**: camelCase (`buildPlannerDigest`, `createProvider`, `chatWithRetry`).
-- **Command names**: lowercase with slash prefix in usage (`/config`, `/genesis`, `/help`, `/clean`).
+- **Types**: PascalCase interfaces (`AetherConfig`, `ProjectContext`, `LLMProvider`, `CleanCodeParadigm`, `CleanCodeIssue`, `CleanCodeReport`); type aliases for unions (`DocSection`).
+- **Constants**: UPPER_SNAKE_CASE (`MAX_FILE_SIZE`, `ACCENT_HEX`, `SECTION_ORDER`, `CLEANCODE_CONTEXT_BUDGET`, `DEFAULT_PARADIGM`).
+- **Functions**: camelCase (`buildPlannerDigest`, `createProvider`, `chatWithRetry`, `scanCleanCodeHeuristics`, `estimateCleanCode`, `estimateCleanCode`, `buildOptimizePrompt`).
+- **Command names**: lowercase with slash prefix in usage (`/config`, `/genesis`, `/help`, `/clean`, `/cleancode`, `/prompt`, `/exclude`).
 
 ### Imports
 - **Relative imports with `.js` extension**: `from '../ui/animation.js'`, `from './types.js'`.
@@ -128,8 +139,6 @@ Aether is an open-source CLI that transforms any codebase into an AI-native work
 - **Auto-detect provider from baseUrl**: `PROVIDER_HOSTS` array maps host substrings to provider names.
 - **API key masking**: `maskKey(key)` shows first 4 + `••••` + last 4.
 
----
-
 ## File Patterns
 
 | Purpose | Location | Pattern |
@@ -137,18 +146,18 @@ Aether is an open-source CLI that transforms any codebase into an AI-native work
 | CLI entry | `src/cli/index.ts` | `main()` function, command registration order |
 | Command implementation | `src/commands/<name>.ts` | `register<Name>Command()` export, uses `registry` |
 | Command registry | `src/commands/registry.ts` | `CommandRegistry` class, `registry` singleton |
-| Genesis pipeline | `src/genesis/<name>.ts` | `context.ts`, `digest.ts`, `fingerprint.ts`, `scope.ts`, `planner.ts`, `docs.ts`, `distill.ts`, `sync.ts`, `types.ts`, `constants.ts`, `exclude.ts` |
+| Genesis pipeline | `src/genesis/<name>.ts` | `context.ts`, `digest.ts`, `fingerprint.ts`, `scope.ts`, `planner.ts`, `docs.ts`, `distill.ts`, `sync.ts`, `types.ts`, `constants.ts`, `exclude.ts`, `cleancode-heuristics.ts`, `cleancode.ts`, `estimate.ts` |
 | Document prompts | `src/prompts/docs/<name>.ts` | One per doc type (e.g., `getting-started.ts`, `api.ts`), exports `*_PROMPT` const |
-| Pipeline prompts | `src/prompts/pipeline/<name>.ts` | `planner.ts` (`PLANNER_PROMPT`), `sync.ts` (`SYNC_PLANNER_PROMPT`, etc.) |
+| Pipeline prompts | `src/prompts/pipeline/<name>.ts` | `planner.ts` (`PLANNER_PROMPT`), `sync.ts` (`SYNC_PLANNER_PROMPT`, etc.), `cleancode.ts` (`PARADIGMS`, `buildCleanCodeScanPrompt`), `optimize.ts` (`OPTIMIZE_PROMPT`, `buildOptimizePrompt`) |
 | Prompt barrel | `src/prompts/index.ts` | Re-exports all prompts, base prompts, `buildCustomDocPrompt` |
 | LLM providers | `src/providers/<name>.ts` | `openai-compatible.ts`, `factory.ts`, `retry.ts`, `types.ts`, `index.ts` |
 | Config system | `src/config/<name>.ts` | `index.ts` (main), `types.ts`, `readme.ts`, `scaffold.ts` |
 | UI components | `src/ui/<name>.ts` | `animation.ts`, `prompt.ts`, `steps.ts`, `theme.ts` |
-| Utilities | `src/util/<name>.ts` | `env.ts`, `hash.ts` |
+| Utilities | `src/util/<name>.ts` | `env.ts`, `hash.ts`, `tokens.ts` |
 | Build script | `scripts/build-sea.mjs` | ES module, uses esbuild + postject |
 | TypeScript config | `tsconfig.json` | `NodeNext`, `ES2022`, `strict`, `declarationMap`, `sourceMap` |
 | Package config | `package.json` | `"type": "module"`, `bin.aether`, scripts, engines, deps |
-| Generated output | `.aether/` (runtime) | `architecture.md`, `context.json`, `docs/`, `diagrams/` |
+| Generated output | `.aether/` (runtime) | `architecture.md`, `context.json`, `docs/`, `diagrams/`, `cleancode-report.md` |
 | Global config | `~/.aether/config.json` | `GlobalConfigFile` with `default` and `projects` |
 | Project cache | `~/.aether/cache/<project-id>/` | `distill-cache.json` per model |
 | Project README | `.aether/README.md` | Written by `ensureProjectReadme` from `AETHER_README` constant |
@@ -156,7 +165,17 @@ Aether is an open-source CLI that transforms any codebase into an AI-native work
 | Exclude command | `src/commands/exclude.ts` | Registers `/exclude` command for add/list/remove |
 | Interactive prompt integration | `src/ui/prompt.ts` | `ChatPrompt` class filters `@` mentions against excludes |
 | Genesis context collection | `src/genesis/context.ts` | `collectDirectories` filters by `loadExcludes` |
-| Built-in commands registration | `src/commands/builtins.ts` | `registerBuiltinCommands()` includes `registerExcludeCommand()` |
+| Built-in commands registration | `src/commands/builtins.ts` | `registerBuiltinCommands()` includes `registerExcludeCommand()`, `registerCleanCodeCommand()`, `registerPromptCommand()` |
+| Clean-code heuristics | `src/genesis/cleancode-heuristics.ts` | `scanCleanCodeHeuristics` static AST-based scan |
+| Clean-code hybrid review | `src/genesis/cleancode.ts` | `scanCleanCodeHybrid`, `estimateCleanCode`, `buildCleanCodeReport`, `buildCleanCodeMarkdown`, `writeCleanCodeMarkdown` |
+| Clean-code command | `src/commands/cleancode.ts` | Registers `/cleancode` with `review`, `ignore`, `paradigm` subcommands |
+| Prompt optimization | `src/commands/prompt.ts` | Registers `/prompt` command |
+| Cost estimation | `src/genesis/estimate.ts` | `estimateCleanCode` for clean-code review cost |
+| Pricing catalog | `src/pricing/index.ts` | `getModelPricing` with OpenRouter live + static fallback |
+| Paradigm definitions | `src/prompts/pipeline/cleancode.ts` | `PARADIGMS` record with 4 paradigms, `DEFAULT_PARADIGM` |
+| Clean-code types | `src/genesis/types.ts` | `CleanCodeParadigm`, `CleanCodeIssue`, `CleanCodeReport`, `CleanCodeIgnoreList` |
+| Clean-code constants | `src/genesis/constants.ts` | `CLEANCODE_CONTEXT_BUDGET` via `envInt` |
+| File-aware @ picker | `src/ui/prompt.ts` | `ChatPrompt.sourcePaths()` filters by command regex (`CLEANCODE_RE`, `REMOVE_RE`)
 
 ## Critical Files to Know
 
@@ -173,9 +192,20 @@ Aether is an open-source CLI that transforms any codebase into an AI-native work
 - `src/genesis/constants.ts` — all tunable limits via env vars
 - `src/genesis/exclude.ts` — exclude path management, `.aether/settings/exclude.json`
 - `src/commands/exclude.ts` — `/exclude` command registration and handling
-- `src/commands/builtins.ts` — registers all built-in commands including exclude
+- `src/commands/builtins.ts` — registers all built-in commands including exclude, cleancode, prompt
 - `src/genesis/context.ts` — `collectDirectories` filters by excludes
 - `src/ui/prompt.ts` — `ChatPrompt` integrates exclude-aware `@` path mentions
+- `src/genesis/cleancode-heuristics.ts` — static clean-code heuristic scan (`scanCleanCodeHeuristics`)
+- `src/genesis/cleancode.ts` — hybrid clean-code review (`scanCleanCodeHybrid`), cost estimation, report generation
+- `src/commands/cleancode.ts` — `/cleancode` command with `review`, `ignore`, `paradigm` subcommands
+- `src/commands/prompt.ts` — `/prompt` command registration
+- `src/genesis/estimate.ts` — `estimateCleanCode` cost estimation for clean-code review
+- `src/pricing/index.ts` — `getModelPricing` with OpenRouter live catalog + static fallback
+- `src/prompts/pipeline/cleancode.ts` — `PARADIGMS` record, `DEFAULT_PARADIGM`, `buildCleanCodeScanPrompt`
+- `src/prompts/pipeline/optimize.ts` — `OPTIMIZE_PROMPT`, `buildOptimizePrompt` for prompt optimization
+- `src/genesis/types.ts` — `CleanCodeParadigm`, `CleanCodeIssue`, `CleanCodeReport`, `CleanCodeIgnoreList` types
+- `src/genesis/constants.ts` — `CLEANCODE_CONTEXT_BUDGET` via `envInt`
+- `src/ui/prompt.ts` — `ChatPrompt.sourcePaths()` for file-aware `@` picker in cleancode/exclude
 
 ## Technologies (Verified)
 
@@ -185,4 +215,4 @@ Aether is an open-source CLI that transforms any codebase into an AI-native work
 - **Build**: tsc (outputs `dist/`), esbuild + postject for SEA
 - **Terminal UI**: chalk 5.4.1 (only runtime dependency)
 - **Types**: @types/node 22.15.21
-- **No test framework, linter, formatter, CI, database, or web framework detected**
+- **No test framework, linter, formatter, CI, database, or web framework detected

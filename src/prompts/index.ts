@@ -27,3 +27,4 @@ export {
   listParadigms,
   buildCleanCodeScanPrompt,
 } from "./pipeline/cleancode.js";
+export { OPTIMIZE_PROMPT, buildOptimizePrompt } from "./pipeline/optimize.js";

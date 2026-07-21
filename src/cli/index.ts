@@ -8,6 +8,7 @@ import { registerConfigCommand } from "../commands/config.js";
 import { registerCleanCommand } from "../commands/clean.js";
 import { registerCleanCodeCommand } from "../commands/cleancode.js";
 import { registerExcludeCommand } from "../commands/exclude.js";
+import { registerPromptCommand } from "../commands/prompt.js";
 
 declare const __AETHER_VERSION__: string;
 const VERSION =
@@ -29,6 +30,7 @@ async function main(): Promise<void> {
   registerCleanCommand();
   registerCleanCodeCommand();
   registerExcludeCommand();
+  registerPromptCommand();
 
   const isInteractive = process.stdin.isTTY ?? false;
   const noAnimation = process.argv.includes("--no-animation");
