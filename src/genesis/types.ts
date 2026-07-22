@@ -90,6 +90,8 @@ export interface DocMeta {
 /** `.aether/settings/context.json` — the point a genesis/sync run was taken from. */
 export interface Snapshot {
   generatedAt: string;
+  /** Project name from the scan (package.json name or folder name). */
+  project?: string;
   provider: string;
   model: string;
   git?: GitInfo;

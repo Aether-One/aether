@@ -155,11 +155,14 @@ export function parsePlan(content: string): ParsedPlan {
 }
 
 export function extractJsonArray(content: string): unknown[] | null {
-  // Strip reasoning blocks some models emit before the answer, and any markdown
-  // code-fence markers, so the real JSON is left standing on its own.
+  // Strip reasoning blocks some models emit before the answer. Fence markers are
+  // only unwrapped at the EDGES — a global ``` replace would also hit fences
+  // inside JSON string values, corrupting doc content carried in section patches.
   const text = content
     .replace(/<think>[\s\S]*?<\/think>/gi, " ")
-    .replace(/```(?:json)?/gi, " ")
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/```\s*$/, "")
     .trim();
 
   // 1. The whole thing is a JSON array.
