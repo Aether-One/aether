@@ -2,7 +2,7 @@
 
 > Transform any codebase into an AI-native workspace.
 
-🚀 Visit our documentation site [click here](https://aether-docs-sigma.vercel.app/)
+🚀 Visit our documentation site [click here](https://aethercli.com/)
 
 ---
 
