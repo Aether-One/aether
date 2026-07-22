@@ -29,6 +29,7 @@ import {
   mergeDocMetas,
   formatChanges,
 } from "../genesis/sync.js";
+import { buildHtmlDocs, hasHtmlDocs } from "../html/build.js";
 import { StepRunner, LineSpinner } from "../ui/steps.js";
 import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { existsSync, statSync } from "node:fs";
@@ -192,6 +193,7 @@ export function registerBuiltinCommands(): void {
         const controller = new AbortController();
         provider.setSignal(controller.signal);
         const stopCancel = watchCancelKey(() => controller.abort());
+        let genesisComplete = false;
 
         try {
           // Build ONE complete context, shared by every doc.
@@ -292,10 +294,14 @@ export function registerBuiltinCommands(): void {
 
           const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
           runner.finish(`Genesis complete in ${elapsed}s → .aether/docs/`);
+          genesisComplete = true;
         } finally {
           stopCancel();
           provider.setSignal(undefined);
         }
+
+        // Optional HTML viewer — deterministic, generated locally, zero tokens.
+        if (genesisComplete) await offerHtmlViewer(targetDir, skipConfirm);
       } catch (err) {
         process.stdout.write(`\n\n${chalk.red("  ✗")} ${formatError(err)}\n\n`);
       }
@@ -424,6 +430,7 @@ export function registerBuiltinCommands(): void {
         const controller = new AbortController();
         provider.setSignal(controller.signal);
         const stopCancel = watchCancelKey(() => controller.abort());
+        let syncComplete = false;
 
         try {
           // Same shared context as genesis, so refreshed docs stay complete and consistent.
@@ -516,9 +523,24 @@ export function registerBuiltinCommands(): void {
 
           const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
           runner.finish(`Sync complete in ${elapsed}s — ${plan.regenerate.length} refreshed, ${plan.add.length} added`);
+          syncComplete = true;
         } finally {
           stopCancel();
           provider.setSignal(undefined);
+        }
+
+        // Keep the HTML viewer in step with the refreshed markdown (opt-in via its existence).
+        if (syncComplete) {
+          if (hasHtmlDocs(targetDir)) {
+            const result = await buildHtmlDocs(targetDir);
+            if (result) {
+              process.stdout.write(`     ${SUCCESS("✓")} ${DIM("docs.html refreshed from the updated docs.")}\n\n`);
+            }
+          } else {
+            process.stdout.write(
+              `     ${DIM("Tip:")} ${ACCENT("/html")} ${DIM("builds a browsable single-file viewer of these docs — free, no tokens.")}\n\n`,
+            );
+          }
         }
       } catch (err) {
         process.stdout.write(`\n\n${chalk.red("  ✗")} ${formatError(err)}\n\n`);
@@ -544,6 +566,31 @@ export function registerBuiltinCommands(): void {
       process.stdout.write("\x1Bc");
     },
   });
+}
+
+/**
+ * Post-genesis opt-in for the HTML viewer. If docs.html already exists (a --force
+ * rerun), it's refreshed without asking — the project already opted in.
+ */
+async function offerHtmlViewer(targetDir: string, skipConfirm: boolean): Promise<void> {
+  let wantHtml = hasHtmlDocs(targetDir) || skipConfirm;
+  if (!wantHtml) {
+    process.stdout.write(`\n     ${DIM("Aether can also build a single-file HTML viewer of these docs — sidebar,")}\n`);
+    process.stdout.write(`     ${DIM("full-text search, clickable cross-links. Generated locally,")} ${SUCCESS("no tokens")}${DIM(".")}\n`);
+    wantHtml = await promptConfirm(`     ${DIM("Generate")} ${ACCENT(".aether/docs.html")}${DIM("?")} ${ACCENT("[Y/n]")} `);
+  }
+
+  if (!wantHtml) {
+    process.stdout.write(`\n     ${DIM("Skipped — generate it anytime with")} ${ACCENT("/html")}${DIM(".")}\n\n`);
+    return;
+  }
+
+  const result = await buildHtmlDocs(targetDir);
+  if (result) {
+    process.stdout.write(
+      `\n     ${SUCCESS("✓")} ${ACCENT(".aether/docs.html")} ${DIM(`ready (${result.pages} pages) — open it in your browser.`)}\n\n`,
+    );
+  }
 }
 
 function showGenesisHelp(): void {
@@ -584,6 +631,8 @@ function showGenesisHelp(): void {
   process.stdout.write(`     ${DIM("won't get api/endpoints.md just because it's in the catalog.\n\n")}`);
   process.stdout.write(`     ${DIM("The planner picks which of the above fit this project, and may add a")}\n`);
   process.stdout.write(`     ${DIM("few extra docs (e.g. a deployment pipeline) if something deserves one.\n\n")}`);
+  process.stdout.write(`     ${DIM("After generating, genesis offers to build")} ${ACCENT(".aether/docs.html")} ${DIM("— a free,")}\n`);
+  process.stdout.write(`     ${DIM("browsable single-file viewer (also available anytime via")} /html${DIM(").")}\n\n`);
 }
 
 async function readFileSafe(path: string): Promise<string | null> {
@@ -606,7 +655,8 @@ function showSyncHelp(): void {
   process.stdout.write(`     ${DIM("How it works:")}\n`);
   process.stdout.write(`       Diffs the project against the last ${ACCENT("/genesis")} snapshot, then refreshes\n`);
   process.stdout.write(`       only the docs affected by what changed and adds new ones if needed.\n`);
-  process.stdout.write(`       ${DIM("Existing docs are updated in place — nothing is ever deleted.")}\n\n`);
+  process.stdout.write(`       ${DIM("Existing docs are updated in place — nothing is ever deleted.")}\n`);
+  process.stdout.write(`       ${DIM("If")} .aether/docs.html ${DIM("exists, it's refreshed automatically afterwards.")}\n\n`);
   process.stdout.write(`     ${DIM("Run")} /genesis ${DIM("first if there's no snapshot yet.")}\n\n`);
 }
 

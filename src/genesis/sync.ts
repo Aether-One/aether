@@ -209,6 +209,7 @@ export async function writeSnapshot(
     JSON.stringify(
       {
         generatedAt: new Date().toISOString(),
+        project: context.name,
         provider: meta.provider,
         model: meta.model,
         git: getGitInfo(rootDir) ?? undefined,
